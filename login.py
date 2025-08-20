@@ -53,9 +53,9 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     try:
         await client.sign_in(phone=phone, code=code)
-        await start_telethon_client()  # Ensures global admin Telethon client is authorized after login
-        await update.message.reply_text("Successfully logged in! You can now use username resolution")
+        await update.message.reply_text("Successfully logged in!")
         context.user_data.clear()
+        await start_telethon_client()
     except SessionPasswordNeededError:
         context.user_data['awaiting_code'] = False  
         context.user_data['awaiting_password'] = True
@@ -75,8 +75,8 @@ async def handle_2fa_password(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     try:
         await client.sign_in(password=password)
-        await start_telethon_client()  # Ensures global admin Telethon client is authorized after login
-        await update.message.reply_text("Successfully logged in with 2FA! You can now use username resolution")
+        await update.message.reply_text("Successfully logged in with 2FA!")
+        await start_telethon_client()
     except Exception as e:
         await update.message.reply_text(f"Error with 2FA: {str(e)}")
     finally:
