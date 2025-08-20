@@ -6,6 +6,7 @@ import os
 from dotenv import load_dotenv
 import asyncio
 
+
 load_dotenv()
 
 API_ID = os.getenv('API_ID')
@@ -15,6 +16,7 @@ ADMIN_ID = os.getenv('ADMIN_ID')
 
 
 async def handle_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    from handlers import start_telethon_client
     if str(update.effective_user.id) != os.getenv('ADMIN_ID'):
         await update.message.reply_text("Only admin can use this command")
         return
@@ -43,6 +45,7 @@ async def handle_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await client.disconnect()
 
 async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    from handlers import start_telethon_client
     if not context.user_data.get('awaiting_code'):
         return
         
@@ -52,6 +55,7 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     try:
         await client.sign_in(phone=phone, code=code)
+        await start_telethon_client()  # Ensures global admin Telethon client is authorized after login
         await update.message.reply_text("Successfully logged in! You can now use username resolution")
         context.user_data.clear()
     except SessionPasswordNeededError:
@@ -64,6 +68,7 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.clear()
 
 async def handle_2fa_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    from handlers import start_telethon_client
     if not context.user_data.get('awaiting_password'):
         return
         
@@ -72,6 +77,7 @@ async def handle_2fa_password(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     try:
         await client.sign_in(password=password)
+        await start_telethon_client()  # Ensures global admin Telethon client is authorized after login
         await update.message.reply_text("Successfully logged in with 2FA! You can now use username resolution")
     except Exception as e:
         await update.message.reply_text(f"Error with 2FA: {str(e)}")

@@ -255,4 +255,4 @@ This project is licensed under the MIT License.
 
 ## Contact
 
-For support or questions, contact the bot admin at [Telegram](https://t.me/echofluxxx).
+For support or questions, contact the bot admin at [Telegram](https://t.me/echofluxx).

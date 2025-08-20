@@ -1,24 +1,39 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 import json
+import os
+import asyncio
+from telethon import TelegramClient
+from telethon import functions, types
+from telethon.tl.functions.messages import CreateChatRequest, ExportChatInviteRequest,  AddChatUserRequest, EditChatPhotoRequest
+from telethon.errors import FloodWaitError, UserNotMutualContactError
+from telethon.tl.functions.messages import GetDialogsRequest
+from telethon.tl.types import InputPeerEmpty, InputChatUploadedPhoto
 from config import *
 from utils import *
 from withdrawal import *
 import re  
 from deposit import *
-from datetime import datetime
-from refund import *
 from datetime import datetime,  timedelta
+from refund import *
 from telegram.error import BadRequest
 from login import *
-from telethon.tl.functions.messages import CreateChatRequest, ExportChatInviteRequest,  AddChatUserRequest
-from telethon.errors import FloodWaitError, UserNotMutualContactError
-from telethon.tl.functions.messages import GetDialogsRequest
-from telethon.tl.types import InputPeerEmpty
 from config import DEAL_TYPE_DISPLAY
-from telethon import functions, types
+
 telethon_client = None
 client_listening = False
+
+async def start_telethon_client():
+    global telethon_client
+    if telethon_client is None:
+        telethon_client = TelegramClient("admin_session", API_ID, API_HASH)
+        await telethon_client.connect()
+        print("Admin Telethon client connected")      
+    if not await telethon_client.is_user_authorized():
+        return False
+    return True
+
+
 
 def load_fees():
     with open('config.json', 'r') as f:
@@ -35,31 +50,142 @@ def calculate_fee(amount, deal_type):
         fee_percentage = allfee
     return amount * (fee_percentage / 100)
 
+async def is_bot_admin(context, chat_id):
+    bot_user = await context.bot.get_me()
+    try:
+        admins = await context.bot.get_chat_administrators(chat_id)
+        for admin in admins:
+            if admin.user.id == bot_user.id:
+                return True
+        return False
+    except Exception as e:
+        print(f"[is_bot_admin] Error checking admin status: {e}")
+        return False
+
+
+async def handle_leave(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if str(update.effective_user.id) != str(ADMIN_ID):
+        await update.message.reply_text("You are not authorized to use this command.")
+        return
+    group_id = None
+    # Support /leave or /leave {group_id}
+    if context.args and len(context.args) > 0:
+        try:
+            group_id = int(context.args[0])
+        except Exception:
+            await update.message.reply_text("Invalid group_id for /leave. Usage: /leave {group_id}")
+            return
+    else:
+        group_id = update.effective_chat.id
+    try:
+        await update.message.reply_text(f"Leaving group {group_id} now...")
+        await context.bot.leave_chat(group_id)
+    except Exception as e:
+        await update.message.reply_text(f"Error trying to leave: {e}")
+# Register the /leave command handler (add to your bot setup)
+
+
+async def check_bot_admin_status(update: Update, context: ContextTypes.DEFAULT_TYPE, for_callback=False):
+  
+    if update.effective_chat.type not in ['group', 'supergroup']:
+        error_msg = "This command can only be used in a group."
+        if for_callback:
+            await update.callback_query.answer(error_msg, show_alert=True)
+        else:
+            await update.message.reply_text(error_msg)
+        return False
+    
+    try:
+        bot_id = (await context.bot.get_me()).id
+        admins = await context.bot.get_chat_administrators(update.effective_chat.id)
+        is_admin = any(admin.user.id == bot_id for admin in admins)
+        
+        if not is_admin:
+            error_msg = "Bot must be an admin to use this feature in this group."
+            if for_callback:
+                await update.callback_query.answer(error_msg, show_alert=True)
+            else:
+                await update.message.reply_text(error_msg)
+            return False
+        
+        return True
+    except Exception as e:
+        print(f"Error checking bot admin status: {e}")
+        error_msg = "Unable to verify bot admin status. Please ensure bot has proper permissions."
+        if for_callback:
+            await update.callback_query.answer(error_msg, show_alert=True)
+        else:
+            await update.message.reply_text(error_msg)
+        return False
+
+# def ensure_bot_admin():
+#     """
+#     Decorator for handler functions: ensures bot is admin, otherwise responds and stops.
+#     Handles both message and callback_query contexts, with detailed logging.
+#     """
+#     def decorator(handler):
+#         @functools.wraps(handler)
+#         async def wrapper(update, context, *args, **kwargs):
+#             chat_id = None
+#             is_query = hasattr(update, "callback_query") and update.callback_query is not None
+#             query = update.callback_query if is_query else None
+
+#             print(f"[ensure_bot_admin] Called for handler: {handler.__name__}")
+#             print(f"[ensure_bot_admin] Update: {update}")
+#             print(f"[ensure_bot_admin] Is callback query: {is_query}")
+
+#             if is_query:
+#                 if hasattr(query, "message") and hasattr(query.message, "chat_id"):
+#                     chat_id = query.message.chat_id
+#                     print(f"[ensure_bot_admin] (query) chat_id: {chat_id}")
+#                 else:
+#                     print("[ensure_bot_admin] (query) No valid chat_id found in callback query.")
+#             elif hasattr(update, "effective_message") and update.effective_message:
+#                 chat_id = update.effective_message.chat_id
+#                 print(f"[ensure_bot_admin] (message) chat_id: {chat_id}")
+#             else:
+#                 print("[ensure_bot_admin] No chat_id found, skipping admin check.")
+            
+#             if chat_id is None:
+#                 print("[ensure_bot_admin] chat_id is None, calling handler anyway.")
+#                 return await handler(update, context, *args, **kwargs)
+
+#             is_admin = await is_bot_admin(context, chat_id)
+#             print(f"[ensure_bot_admin] is_bot_admin result: {is_admin}")
+
+#             if not is_admin:
+#                 print("[ensure_bot_admin] Bot is NOT an admin. Sending error message.")
+#                 if is_query:
+#                     await query.answer(
+#                         "❌ Bot must be an admin in this group to perform this action.",
+#                         show_alert=True
+#                     )
+#                 else:
+#                     await update.effective_message.reply_text(
+#                         "❌ Bot must be an admin in this group to perform this action."
+#                     )
+#                 return  # Do NOT call the handler
+
+#             print("[ensure_bot_admin] Bot IS an admin. Calling original handler.")
+#             return await handler(update, context, *args, **kwargs)
+#         return wrapper
+#     return decorator
 
 async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
-        [InlineKeyboardButton("Start Deal 🤝", callback_data="start_deal")],
         [InlineKeyboardButton("Help ⚠️", callback_data="help"),
          InlineKeyboardButton("Reviews 🌟", callback_data="reviews")],
-        [InlineKeyboardButton("Contact Mod 📞", url="https://t.me/echofluxxx")]
+        [InlineKeyboardButton("Contact Mod 📞", url=f"https://t.me/{ADMIN_USERNAME}")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
+    # Load custom messages from custom.json
+    with open('custom.json', 'r', encoding='utf-8') as f:
+        custom_texts = json.load(f)
+    
     welcome_text = (
-        "𝗪𝗲𝗹𝗰𝗼𝗺𝗲 𝘁𝗼 𝘁𝗵𝗲 𝗠𝗶𝗱𝗱𝗹𝗲𝗺𝗮𝗻 𝗕𝗼𝘁! 🤝\n"
-        "𝗪𝗲 𝗵𝗲𝗹𝗽 𝗽𝗲𝗼𝗽𝗹𝗲 𝗯𝘂𝘆 𝗮𝗻𝗱 𝘀𝗲𝗹𝗹 𝘁𝗵𝗶𝗻𝗴𝘀 𝘀𝗮𝗳𝗲𝗹𝘆.\n\n"
-        "📝 Quick Deal Setup:\n"
-        "Use the /form command in any group to quickly create a deal!\n\n"
-        "How to use /form:\n"
-        "1. Add bot to your group\n" 
-        "2. Type /form\n"
-        "3. Fill details as shown:\n"
-        "   <code>Buyer: @username\n"
-        "   Seller: @username\n" 
-        "   Deal: What you're trading\n"
-        "   Price: $amount\n\n</code>"
-        "4. Click The Text To Copy Deal Form 👆\n\n"
-        "Both buyer and seller must be in the group! 🎯"
+        f"𝗪𝗲𝗹𝗰𝗼𝗺𝗲 𝘁𝗼 𝘁𝗵𝗲 {custom_texts['escrow_bot_name']}! 🤝\n"
+        f"{custom_texts['start_message']}"
     )
 
     if update.callback_query:
@@ -75,42 +201,73 @@ async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='HTML'
         )
 
-
 async def handle_form(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.type not in ['group', 'supergroup']:
         await update.message.reply_text("This command can only be used in a group.")
         return
-        
+    
+    is_admin = await ensure_bot_admin_telethon(update.effective_chat.id)
+    if not is_admin:
+        await update.message.reply_text("❌ Bot must be an admin in this group to perform this action.")
+        return
+    # Don't allow multiple awaiting forms in the same group
+    if context.chat_data.get('awaiting_form_id'):
+        await update.message.reply_text("A form is already being filled out in this group. Complete or cancel it before starting a new one.")
+        return
+   
+    
+    notified_flag = f"admin_notified_{update.effective_chat.id}"
+    groups_file = "groups.json"
+    group_entry = {
+        "group_id": update.effective_chat.id,
+        "title": update.effective_chat.title,
+    }
+    if not context.bot_data.get(notified_flag):
+        try:
+            try:
+                invite_link = await context.bot.export_chat_invite_link(update.effective_chat.id)
+            except Exception:
+                invite_link = "❌ Could not generate invite link"
+            group_entry["invite_link"] = invite_link
+            try:
+                if os.path.exists(groups_file):
+                    with open(groups_file, "r") as f:
+                        all_groups = json.load(f)
+                else:
+                    all_groups = []
+                if not any(x.get("group_id") == update.effective_chat.id for x in all_groups):
+                    group_entry["logged_at"] = datetime.now().isoformat()
+                    all_groups.append(group_entry)
+                    with open(groups_file, "w") as f:
+                        json.dump(all_groups, f, indent=2)
+            except Exception as e:
+                print(f"Failed to log group in groups.json: {e}")
+            # Send ADMIN message only once for this group
+            await context.bot.send_message(
+                ADMIN_ID,
+                f"📢 Bot is admin in group:\n\n <b>{update.effective_chat.title}</b>\n (ID: <code>{update.effective_chat.id}</code>)\n\n"
+                f"Invite link:\n <code>{invite_link}</code>",
+                parse_mode='HTML'
+            )
+            context.bot_data[notified_flag] = True
+        except Exception as e:
+            print(f"Failed to notify admin/log group: {e}")
+    # Mark group as having an awaiting form
     context.user_data['awaiting_form'] = True
+    # Save the message id, so form replies must reply to this message
     keyboard = [[InlineKeyboardButton("❌", callback_data="cancel_form")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
-
-
-    await update.message.reply_text(
-        "Please enter deal details in this format:\n\n"
-        "Buyer: @username\n"
-        "Seller: @username\n"
-        "Deal: What you're dealing\n"
-        "Price: $amount\n"
-        "Time: duration (optional)\n\n"
-        "```Example:\n\n"
-        "Buyer: @buyer\n"
-        "Seller: @seller\n"
-        "Deal: Selling ps4\n"
-        "Price: $2000\n"
-        "Time: 2 hours```\n\n"
-        "```Example without time:\n\n"
-        "Buyer: @buyer\n"
-        "Seller: @seller\n"
-        "Deal: Selling ps4\n"
-        "Price: $2000```\n\n"
-        '⚠ Your form data must be exactly how the instruction is given ⚠\n'
-        '⚠ State price in dollar and ensure you include the $ sign ⚠\n'
-        '⚠ Time formats: "2 hours", "1 hr", "3 h", "30 minutes" (1 - 24 hours only) ⚠\n'
-        '⚠ If no time specified, default 1 hour will be used ⚠',
-        parse_mode="Markdown",
+    # Load custom messages from custom.json
+    with open('custom.json', 'r', encoding='utf-8') as f:
+        custom_texts = json.load(f)
+    
+    msg = await update.message.reply_text(
+        custom_texts['form_message'],
+        parse_mode="HTML",
         reply_markup=reply_markup
     )
+    context.chat_data['awaiting_form_id'] = msg.message_id
+    context.user_data['form_prompt_msg_id'] = msg.message_id
 
 def parse_time_duration(time_text):
     """Parse time duration from text and return hours as integer"""
@@ -152,29 +309,122 @@ def parse_time_duration(time_text):
     return None
 
 
-from telethon import TelegramClient
-import os
 
-async def check_admin_session():
-    if not os.path.exists('admin_session.session'):
+async def ensure_bot_admin_telethon(chat_id, bot_username=None):
+    """
+    Uses the persistent Telethon client for admin status check.
+    Returns True if bot is admin, False otherwise.
+    """
+    global telethon_client
+    started = await start_telethon_client()
+    if not started:
         return False
-    
-    client = TelegramClient('admin_session', API_ID, API_HASH)
+    client = telethon_client
+    if not bot_username:
+        try:
+            with open('config.json', 'r') as f:
+                config = json.load(f)
+            bot_username = config.get('bot_username') or config.get('username')
+        except Exception:
+            bot_username = None
+    if not bot_username:
+        return False
+    if not bot_username.startswith('@'):
+        bot_username = '@' + bot_username
     try:
-        await client.connect()
-        if not await client.is_user_authorized():
-            await client.disconnect()
-            return False
-        await client.disconnect()
-        return True
-    except:
+        bot_entity = await client.get_entity(bot_username)
+    except Exception:
+        return False
+    try:
+        from telethon.tl.functions.channels import GetParticipantRequest
+        from telethon.tl.types import ChannelParticipantAdmin, ChannelParticipantCreator
+        try:
+            participant = await client(GetParticipantRequest(chat_id, bot_entity))
+            if isinstance(participant.participant, (ChannelParticipantAdmin, ChannelParticipantCreator)):
+                return True
+        except Exception:
+            participants = await client.get_participants(chat_id)
+            for user in participants:
+                if user.id == bot_entity.id:
+                    rights = getattr(user, 'admin_rights', None)
+                    if rights:
+                        return True
+                    break
+        return False
+    except Exception:
         return False
 
 async def process_form(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Only check admin if we're actually about to process form input (not for TOS etc)
+    if context.user_data.get('awaiting_form'):
+        is_admin = await ensure_bot_admin_telethon(update.effective_chat.id)
+        if not is_admin:
+            await update.message.reply_text("❌ Bot must be an admin in this group to perform this action.")
+            return
+    # If this is the TERMS step, save terms, store, and proceed
+    if context.user_data.get('awaiting_terms'):
+        # Only accept reply to the TOS prompt
+        tos_prompt_id = context.user_data.get('tos_prompt_msg_id')
+        if not update.message.reply_to_message or update.message.reply_to_message.message_id != tos_prompt_id:
+            await update.message.reply_text("Please reply directly to the Terms prompt message to enter your terms.")
+            return
+        deal_id = context.user_data.get('terms_deal_id')
+        if not deal_id:
+            await update.message.reply_text("Unexpected error storing terms. Please start form again.")
+            context.user_data.pop('awaiting_terms', None)
+            context.user_data.pop('tos_prompt_msg_id', None)
+            return
+        terms = update.message.text.strip()
+        deal_data = get_active_deal(deal_id)
+        if not deal_data:
+            await update.message.reply_text("Deal not found while saving terms. Please start form again.")
+            context.user_data.pop('awaiting_terms', None)
+            context.user_data.pop('tos_prompt_msg_id', None)
+            return
+        deal_data['terms_and_conditions'] = terms
+        update_active_deal(deal_id, {"terms_and_conditions": terms})
+        context.user_data.pop('awaiting_terms', None)
+        context.user_data.pop('state', None)
+        context.user_data.pop('terms_deal_id', None)
+        context.user_data.pop('tos_prompt_msg_id', None)
+
+        buyer_name = deal_data.get('buyer_name', '')
+        seller_name = deal_data.get('seller_name', '')
+        timer_hours = deal_data.get('timer_hours', 1)
+        keyboard = [
+            [InlineKeyboardButton("Click Confirm ✅", callback_data=f"confirm_form_{deal_id}")],
+            [InlineKeyboardButton("End Deal ❌", callback_data=f"back")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        timer_display = f"{timer_hours} Hour{'s' if timer_hours != 1 else ''}"
+        # Better format TOS for professional look
+        formatted_terms = '\n'.join(f"<b>•</b> {line.strip()}" if line.strip() else '' for line in terms.splitlines())
+        tos_msg_body = (
+            f"<b>TERMS & CONDITIONS OF DEAL</b>\n\n"
+            f"{formatted_terms}" if formatted_terms.strip() else "<i>No terms provided.</i>"
+        )
+        await update.message.reply_text(
+            f"<b>𝗘𝗦𝗖𝗥𝗢𝗪 𝗦𝗘𝗥𝗩𝗜𝗖𝗘</b>\n\n"
+            f"👤 Buyer: <a href='tg://user?id={deal_data['buyer']}'>{buyer_name}</a>\n"
+            f"👥 Seller: <a href='tg://user?id={deal_data['seller']}'>{seller_name}</a>\n"
+            f"🔵 Deal: {deal_data['deal_type']}\n"
+            f"💰 Amount: ${deal_data['amount']:.2f}\n\n"
+            f"⏰ Timer: {timer_display}\n\n"
+            f"{tos_msg_body}\n\n"
+            f"<i>Both buyer and seller must confirm to proceed</i>",
+            reply_markup=reply_markup,
+            parse_mode='HTML'
+        )
+        context.user_data['awaiting_form'] = False
+        print(">>> Terms collected and confirmation message sent")
+        return
+
     if not context.user_data.get('awaiting_form'):
         print(">>> Not awaiting form, returning early")
         return
-        
+    # Clear group awaiting marker after form completion or cancel
+    context.chat_data.pop('awaiting_form_id', None)
+    context.user_data.pop('form_prompt_msg_id', None)
     text = update.message.text
     lines = text.split('\n')
     form_data = {}
@@ -185,19 +435,29 @@ async def process_form(update: Update, context: ContextTypes.DEFAULT_TYPE):
     print(f">>> Entities found: {entities}")
     
     try:
+        global telethon_client
+        # Progress tracking setup
+        form_progress_msg = await update.message.reply_text("<b>PROCESSING FORM: 0%</b>", parse_mode='HTML')
+        progress = 0
+        progress_steps = ["buyer", "seller", "deal", "price", "time"]
+        curr_step = 0
+        # ---
         for line in lines:
             line = line.replace('  ', ' ') 
             print(f">>> Processing line: {line}")
             
             if line.lower().startswith('buyer:'):
                 print(">>> Processing buyer...")
-                if not await check_admin_session():
-                    print(">>> Admin session check failed")
-                    await update.message.reply_text("Admin needs to login ⚠")
-                    return
-                    
-                client = TelegramClient('admin_session', API_ID, API_HASH)
-                await client.connect()
+                curr_step = 1
+                progress = 20
+                try:
+                    await update.message.get_bot().edit_message_text(
+                        chat_id=update.effective_chat.id,
+                        message_id=form_progress_msg.message_id,
+                        text=f"<b>PROCESSING FORM: {progress}%</b>",
+                        parse_mode='HTML')
+                except Exception: pass
+                await start_telethon_client()
                 buyer_found = False
                 
                 for entity in entities:
@@ -210,20 +470,43 @@ async def process_form(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         if entity_text in line:
                             try:
                                 print(f">>> Attempting to get entity for {entity_text}")
-                                user = await client.get_entity(entity_text)
-                                form_data['buyer_id'] = user.id
-                                form_data['buyer_name'] = user.first_name
-                                print(f">>> Successfully resolved buyer: {form_data['buyer_name']} (ID: {form_data['buyer_id']})")
-                                buyer_found = True
+                                user = await telethon_client.get_entity(entity_text)
+                                
+                                # NEW: Better error handling for entity types
+                                if hasattr(user, 'first_name'):
+                                    form_data['buyer_id'] = user.id
+                                    form_data['buyer_name'] = user.first_name
+                                    print(f">>> Successfully resolved buyer: {form_data['buyer_name']} (ID: {form_data['buyer_id']})")
+                                    buyer_found = True
+                                else:
+                                    keyboard = [[InlineKeyboardButton("❌ Cancel Form", callback_data="cancel_form")]]
+                                    reply_markup = InlineKeyboardMarkup(keyboard)
+                                    msg = await update.message.reply_text(
+                                        f"❌ The username {entity_text} is not a valid user account (it might be a channel, bot, or invalid username).\n\n"
+                                        "Please reply to this message with a corrected form using valid user accounts, or click Cancel to end the form.",
+                                        reply_markup=reply_markup
+                                    )
+                                    context.user_data['form_prompt_msg_id'] = msg.message_id
+                                    context.chat_data['awaiting_form_id'] = msg.message_id
+                                    return
+                                    
                             except Exception as e:
                                 print(f">>> Error resolving buyer entity: {e}")
-                                await client.disconnect()
-                                await update.message.reply_text("Admin needs to login ⚠")
+                               
+                                keyboard = [[InlineKeyboardButton("❌ Cancel Form", callback_data="cancel_form")]]
+                                reply_markup = InlineKeyboardMarkup(keyboard)
+                                msg = await update.message.reply_text(
+                                    f"❌ Error resolving username {entity_text}: {str(e)}\n\n"
+                                    "Please reply to this message with a corrected form using valid usernames, or click Cancel to end the form.",
+                                    reply_markup=reply_markup
+                                )
+                                context.user_data['form_prompt_msg_id'] = msg.message_id
+                                context.chat_data['awaiting_form_id'] = msg.message_id
                                 return
                 
                 if not buyer_found:
                     print(">>> No buyer entity was matched in the line")
-                    await update.message.reply_text(
+                    msg = await update.message.reply_text(
                                     "💡 Form Guide:\n\n"
                                     "1. Make sure usernames are correct\n"
                                     "2. Both users must be in the group\n"
@@ -234,17 +517,25 @@ async def process_form(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                     "Price: $amount</code>",
                                     parse_mode='HTML'
                                 )
-                await client.disconnect()
+                    context.user_data['form_prompt_msg_id'] = msg.message_id
+                    context.chat_data['awaiting_form_id'] = msg.message_id
 
             elif line.lower().startswith('seller:'):
                 print(">>> Processing seller...")
-                if not await check_admin_session():
-                    print(">>> Admin session check failed")
-                    await update.message.reply_text("Admin needs to login ⚠")
-                    return
-                    
-                client = TelegramClient('admin_session', API_ID, API_HASH)
-                await client.connect()
+                curr_step = 2
+                progress = 40
+                try:
+                    await update.message.get_bot().edit_message_text(
+                        chat_id=update.effective_chat.id,
+                        message_id=form_progress_msg.message_id,
+                        text=f"<b>PROCESSING FORM: {progress}%</b>",
+                        parse_mode='HTML')
+                except Exception: pass
+                
+                
+                await start_telethon_client()
+
+               
                 seller_found = False
                 
                 for entity in entities:
@@ -257,25 +548,58 @@ async def process_form(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         if entity_text in line:
                             try:
                                 print(f">>> Attempting to get entity for {entity_text}")
-                                user = await client.get_entity(entity_text)
-                                form_data['seller_id'] = user.id
-                                form_data['seller_name'] = user.first_name
-                                print(f">>> Successfully resolved seller: {form_data['seller_name']} (ID: {form_data['seller_id']})")
-                                seller_found = True
+                                user = await telethon_client.get_entity(entity_text)
+                                
+                                # NEW: Better error handling for entity types
+                                if hasattr(user, 'first_name'):
+                                    form_data['seller_id'] = user.id
+                                    form_data['seller_name'] = user.first_name
+                                    print(f">>> Successfully resolved seller: {form_data['seller_name']} (ID: {form_data['seller_id']})")
+                                    seller_found = True
+                                else:
+                                    # Handle channels, bots, or other entity types
+                                    
+                                    keyboard = [[InlineKeyboardButton("❌ Cancel Form", callback_data="cancel_form")]]
+                                    reply_markup = InlineKeyboardMarkup(keyboard)
+                                    msg = await update.message.reply_text(
+                                        f"❌ The username {entity_text} is not a valid user account (it might be a channel, bot, or invalid username).\n\n"
+                                        "Please reply to this message with a corrected form using valid user accounts, or click Cancel to end the form.",
+                                        reply_markup=reply_markup
+                                    )
+                                    context.user_data['form_prompt_msg_id'] = msg.message_id
+                                    context.chat_data['awaiting_form_id'] = msg.message_id
+                                    return
+                                    
                             except Exception as e:
                                 print(f">>> Error resolving seller entity: {e}")
-                                await client.disconnect()
-                                await update.message.reply_text("Admin needs to login ⚠")
+                                
+                                keyboard = [[InlineKeyboardButton("❌ Cancel Form", callback_data="cancel_form")]]
+                                reply_markup = InlineKeyboardMarkup(keyboard)
+                                msg = await update.message.reply_text(
+                                    f"❌ Error resolving username {entity_text}: {str(e)}\n\n"
+                                    "Please reply to this message with a corrected form using valid usernames, or click Cancel to end the form.",
+                                    reply_markup=reply_markup
+                                )
+                                context.user_data['form_prompt_msg_id'] = msg.message_id
+                                context.chat_data['awaiting_form_id'] = msg.message_id
                                 return
                 
                 if not seller_found:
                     print(">>> No seller entity was matched in the line")
-                await client.disconnect()
-
+                
             elif line.lower().startswith('deal:'):
                 deal_type = line.split('Deal:')[1].strip()
                 form_data['deal_type'] = deal_type
                 print(f">>> Added deal_type: {deal_type}")
+                curr_step = 3
+                progress = 60
+                try:
+                    await update.message.get_bot().edit_message_text(
+                        chat_id=update.effective_chat.id,
+                        message_id=form_progress_msg.message_id,
+                        text=f"<b>PROCESSING FORM: {progress}%</b>",
+                        parse_mode='HTML')
+                except Exception: pass
                 
             elif line.lower().startswith('price:'):
                 try:
@@ -285,6 +609,19 @@ async def process_form(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     price_text = price_text.replace('usd', '').strip()
                     amount = float(price_text)
                     form_data['amount'] = amount
+                    if amount < 1:
+                        await update.message.reply_text("❌ Amount must be at least $1. Please enter a valid amount.")
+                        return
+                except ValueError:      
+                    curr_step = 4
+                    progress = 80
+                    try:
+                        await update.message.get_bot().edit_message_text(
+                            chat_id=update.effective_chat.id,
+                            message_id=form_progress_msg.message_id,
+                            text=f"<b>PROCESSING FORM: {progress}%</b>",
+                            parse_mode='HTML')
+                    except Exception: pass
                 except:
                     await update.message.reply_text(
                         "💡 Price should be a number like:\n"
@@ -299,8 +636,17 @@ async def process_form(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if parsed_time:
                     form_data['timer_hours'] = parsed_time
                     print(f">>> Added timer_hours: {parsed_time}")
+                    curr_step = 5
+                    progress = 95
+                    try:
+                        await update.message.get_bot().edit_message_text(
+                            chat_id=update.effective_chat.id,
+                            message_id=form_progress_msg.message_id,
+                            text=f"<b>PROCESSING FORM: {progress}%</b>",
+                            parse_mode='HTML')
+                    except Exception: pass
                 else:
-                    await update.message.reply_text(
+                    msg = await update.message.reply_text(
                         "💡 Invalid time format. Use:\n"
                         "Time: 2 hours\n"
                         "Time: 1 hr\n"
@@ -308,11 +654,22 @@ async def process_form(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         "Time: 30 minutes\n\n"
                         "Valid range: 1 - 24 hours"
                     )
+                    context.user_data['form_prompt_msg_id'] = msg.message_id
+                    context.chat_data['awaiting_form_id'] = msg.message_id
                     return
         
         print(f">>> Form data collected: {form_data}")
         required_fields = ['buyer_id', 'buyer_name', 'seller_id', 'seller_name', 'deal_type', 'amount']
         missing_fields = [field for field in required_fields if field not in form_data]
+        
+        progress = 100
+        try:
+            await update.message.get_bot().edit_message_text(
+                chat_id=update.effective_chat.id,
+                message_id=form_progress_msg.message_id,
+                text=f"<b>PROCESSING FORM: {progress}%</b>",
+                parse_mode='HTML')
+        except Exception: pass
         
         print(f">>> Required fields: {required_fields}")
         print(f">>> Missing fields: {missing_fields}")
@@ -320,17 +677,27 @@ async def process_form(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not all(k in form_data for k in ['buyer_id', 'buyer_name', 'seller_id', 'seller_name', 'deal_type', 'amount']):
             keyboard = [[InlineKeyboardButton("❌ Cancel Form", callback_data="cancel_form")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.message.reply_text(
+            msg = await update.message.reply_text(
                 "Form not arranged correctly ❌\n\n"
                 "💡 Copy and fill this format:\n"
                 "<code>Buyer: @username\n"
                 "Seller: @username\n"
                 "Deal: what you're trading\n"
-                "Price: $amount</code>"
+                "Price: $amount\n"
                 "Time: duration (optional)</code>",
                 parse_mode='HTML',
-                reply_markup = reply_markup
+                reply_markup=reply_markup
             )
+            context.user_data['form_prompt_msg_id'] = msg.message_id
+            context.chat_data['awaiting_form_id'] = msg.message_id
+            return
+
+        # Check if buyer and seller are the same person
+        if form_data['buyer_id'] == form_data['seller_id']:
+            await update.message.reply_text("Buyer and seller cannot be the same person. Please enter different users for each role.")
+            context.user_data['awaiting_form'] = False
+            context.chat_data.pop('awaiting_form_id', None)
+            context.user_data.pop('form_prompt_msg_id', None)
             return
             
         deal_id = generate_deal_id(form_data['buyer_id'], None, update.effective_chat.id)
@@ -344,6 +711,8 @@ async def process_form(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "group_id": update.effective_chat.id,
             "buyer": form_data['buyer_id'],
             "seller": form_data['seller_id'],
+            "buyer_name": form_data['buyer_name'],
+            "seller_name": form_data['seller_name'],
             "amount": form_data['amount'],
             "deal_type": form_data['deal_type'],
             "timer_hours": timer_hours,
@@ -352,30 +721,74 @@ async def process_form(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         print(f">>> Deal data prepared: {deal_data}")
         save_active_deal(deal_id, deal_data)
-        
-        keyboard = [
-            [InlineKeyboardButton("Click Confirm ✅", callback_data=f"confirm_form_{deal_id}")],
-            [InlineKeyboardButton("End Deal ❌", callback_data=f"back")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
 
-        timer_display = f"{timer_hours} Hour{'s' if timer_hours != 1 else ''}"
+        # Send deal details to involved parties
+        try:
+            invite_link = await context.bot.export_chat_invite_link(update.effective_chat.id)
+        except Exception:
+            invite_link = "❌ Could not generate invite link"
 
-        await update.message.reply_text(
-            f"<b>𝗙𝗟𝗨𝗫𝗫 𝗘𝗦𝗖𝗥𝗢𝗪 𝗦𝗘𝗥𝗩𝗜𝗖𝗘</b>\n\n"
-            f"👤 Buyer: <a href='tg://user?id={form_data['buyer_id']}'>{form_data['buyer_name']}</a>\n"
-            f"👥 Seller: <a href='tg://user?id={form_data['seller_id']}'>{form_data['seller_name']}</a>\n"
-            f"🔵 Deal: {form_data['deal_type']}\n"
-            f"💰 Amount: ${form_data['amount']:.2f}\n\n"
-            f"⏰ Timer: {timer_display}\n\n"
-            f"<i>Both buyer and seller must confirm to proceed</i>",
-            reply_markup=reply_markup,
-            parse_mode='HTML'
+        deal_details = (
+            f"<b>🔔 New Deal Initiated!</b>\n\n"
+            f"<b>Group:</b> {update.effective_chat.title} (ID: <code>{update.effective_chat.id}</code>)\n"
+            f"<b>Group Link:</b> {invite_link}\n"
+            f"<b>Buyer:</b> <a href='tg://user?id={form_data['buyer_id']}'>{form_data['buyer_name']}</a>\n"
+            f"<b>Seller:</b> <a href='tg://user?id={form_data['seller_id']}'>{form_data['seller_name']}</a>\n"
+            f"<b>Deal:</b> {form_data['deal_type']}\n"
+            f"<b>Amount:</b> ${form_data['amount']:.2f}\n"
+            f"<b>Timer:</b> {form_data.get('timer_hours', 1)} hours\n\n"
+            f"Timestamp: <i>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</i>"
         )
-        
-        context.user_data['awaiting_form'] = False
-        print(">>> Form processing completed successfully")
-        
+
+        # Send to admin, buyer, and seller
+        try:
+            await context.bot.send_message(ADMIN_ID, deal_details, parse_mode='HTML', disable_web_page_preview=True)
+        except Exception as e:
+            print(f"Failed to send deal details to admin: {e}")
+
+        try:
+            await context.bot.send_message(form_data['buyer_id'], deal_details, parse_mode='HTML', disable_web_page_preview=True)
+        except Exception as e:
+            print(f"Failed to send deal details to buyer: {e}")
+
+        try:
+            await context.bot.send_message(form_data['seller_id'], deal_details, parse_mode='HTML', disable_web_page_preview=True)
+        except Exception as e:
+            print(f"Failed to send deal details to seller: {e}")
+        try:
+            form_prompt_id = context.user_data.get('form_prompt_msg_id') or context.chat_data.get('awaiting_form_id')
+            if form_prompt_id:
+                await context.bot.delete_message(
+                    chat_id=update.effective_chat.id,
+                    message_id=form_prompt_id
+                )
+                context.user_data.pop('form_prompt_msg_id', None)
+                context.chat_data.pop('awaiting_form_id', None)
+        except Exception as e:
+            print(f"Failed to delete form prompt message: {e}")
+
+        # Prompt for terms and conditions NEXT
+        context.user_data['awaiting_terms'] = True
+        context.user_data['state'] = 'AWAITING_TOS'
+        context.user_data['terms_deal_id'] = deal_id
+        keyboard = [[InlineKeyboardButton("❌", callback_data="back")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        with open("custom.json", "r", encoding="utf-8") as f:
+            custom = json.load(f)
+
+        tos_prompt = custom.get("tos_prompt_message", (
+            "<b>TERMS AND CONDITIONS OF DEAL</b>\n\n"
+            "<i>Please reply to this message and clearly state all rules, obligations, and important points governing the deal.\n"
+            "• Use clear paragraphs or lists.\n"
+            "• Example: <b>All payments must be made before delivery. No refunds unless mutually agreed. Both parties must follow the group rules...</b></i>"
+        ))
+        tos_msg = await update.message.reply_text(
+            tos_prompt,
+            parse_mode='HTML',
+            reply_markup=reply_markup
+        )
+        context.user_data['tos_prompt_msg_id'] = tos_msg.message_id
+        return
     except Exception as e:
         print(f">>> CRITICAL ERROR processing form: {str(e)}")
         print(f">>> Exception type: {type(e)}")
@@ -383,6 +796,8 @@ async def process_form(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print(f">>> Traceback: {traceback.format_exc()}")
         await update.message.reply_text("Invalid form format or user not found. Please try again.")
         context.user_data['awaiting_form'] = False
+
+
 
 async def handle_reviews(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -474,27 +889,27 @@ async def handle_create(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("This command can only be used by real users.")
         return
 
-    if not await check_admin_session():
+    created = await start_telethon_client()
+    if not created:
         await update.message.reply_text("Admin needs to login first!")
         return
-    
-    temp_client = False
-    if not telethon_client:
-        telethon_client = TelegramClient('admin_session', API_ID, API_HASH)
-        await telethon_client.connect()
-        temp_client = True
-    
+    client = telethon_client
+        
     try:
+        with open('custom.json', 'r', encoding='utf-8') as f:
+            custom = json.load(f)
+
+        brand_name = custom.get("brand_name", "FLUXX")
         unique_id = f"{random.randint(0, 999):03d}"
-        group_title = f"𝙵𝙻𝚄𝚇𝚇 𝙴𝚂𝙲𝚁𝙾𝚆 𝙶𝚁𝙾𝚄𝙿 {unique_id}"
-        group_description = "Welcome to the FLUXX ESCROW GROUP. This is a secure environment for conducting transactions with the assistance of our escrow bot."
+        group_title = f"{brand_name} 𝙴S𝙲𝚁𝙾𝚆 𝙶𝚁𝙾𝚄𝙿 {unique_id}"
+        group_description = f"Welcome to the {brand_name} ESCROW GROUP. This is a secure environment for conducting transactions with the assistance of our escrow bot."
         
         bot_username = (await context.bot.get_me()).username
-        user = await telethon_client.get_input_entity(update.effective_user.username)
-        bot = await telethon_client.get_input_entity(bot_username)
+        user = await client.get_input_entity(update.effective_user.username)
+        bot = await client.get_input_entity(bot_username)
         
         # Create the group
-        await telethon_client(CreateChatRequest(users=[user], title=group_title))
+        await client(CreateChatRequest(users=[user], title=group_title))
 
         # 🔹 Fetch the newly created chat from your recent dialogs
         dialogs = await telethon_client(GetDialogsRequest(
@@ -532,9 +947,11 @@ async def handle_create(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if response.status_code == 200:
                     image_data = BytesIO(response.content)
                     # Upload and set as profile picture
-                    await telethon_client(functions.channels.EditPhotoRequest(
-                        channel=chat_id,
-                        photo=await telethon_client.upload_file(image_data)
+                    await telethon_client(EditChatPhotoRequest(
+                        chat_id=chat_id,
+                        photo=InputChatUploadedPhoto(
+                            file=await telethon_client.upload_file(image_data)
+                        )
                     ))
                     print(f">>> Successfully set profile picture from URL")
                 else:
@@ -612,6 +1029,35 @@ async def handle_create(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Title: {group_title}\n\n"
             f"Join here: {invite_link}\n\n"
         )
+        # Notify ADMIN_ID and log group
+        try:
+            await context.bot.send_message(
+                chat_id=ADMIN_ID,
+                text=f"Bot created group: <b>{group_title}</b>\nInvite link: {invite_link}",
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            print(f"Failed to notify admin of group creation: {str(e)}")
+        # Log group info
+        import datetime
+        created_file = 'groups.json'
+        log_entry = {
+            "group_title": group_title,
+            "invite_link": invite_link,
+            "chat_id": chat_id,
+            "created_at": datetime.datetime.now().isoformat()
+        }
+        try:
+            if os.path.exists(created_file):
+                with open(created_file, 'r') as f:
+                    data = json.load(f)
+            else:
+                data = []
+            data.append(log_entry)
+            with open(created_file, 'w') as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:
+            print(f"Failed to write groups.json: {str(e)}")
         
     except FloodWaitError as e:
         await update.message.reply_text(f"⚠️ Too many requests. Please try again after {e.seconds} seconds.")
@@ -620,15 +1066,19 @@ async def handle_create(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"⚠️ Creation failed: {str(e)}")
     finally:
-        if temp_client:
-            await telethon_client.disconnect()
+        pass  # client is managed globally, do not disconnect
 
 async def handle_startdeal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     group_id = update.effective_chat.id
     user_id = update.effective_user.id
-    
     if update.effective_chat.type not in ['group', 'supergroup']:
         await update.message.reply_text("This command can only be used in a group.")
+        return
+    # Check bot admin status
+    bot_id = (await context.bot.get_me()).id
+    admins = await context.bot.get_chat_administrators(update.effective_chat.id)
+    if not any(admin.user.id == bot_id for admin in admins):
+        await update.message.reply_text("Bot must be an admin to use /startdeal in this group.")
         return
 
     active_deals = get_all_active_deals()
@@ -678,7 +1128,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             deal_id = d_id
             break
     deal_data = get_active_deal(deal_id) if deal_id else None
-
+    
     if query.data in ["buyer", "seller"] and not deal_data:
         user_id = query.from_user.id
         group_id = update.effective_chat.id
@@ -697,6 +1147,35 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save_active_deal(deal_id, deal_data)
         context.chat_data['deal_id'] = deal_id
 
+    # ---- BUTTON ABORT IF BOT NOT ADMIN + DEAL DEPOSITED ----
+    action_buttons = {"release_payment", "check_timer", "mod", "back"}
+    if deal_data and deal_data.get("status") == "deposited" and query.data in action_buttons:
+        is_admin = await ensure_bot_admin_telethon(query.message.chat.id)
+        if not is_admin:
+           
+            deal_info = json.dumps(deal_data, indent=2, default=str)
+            buyer_link = f"<a href='tg://user?id={deal_data['buyer']}'>{deal_data.get('buyer_name','UNKNOWN')}</a>"
+            seller_link = f"<a href='tg://user?id={deal_data['seller']}'>{deal_data.get('seller_name','UNKNOWN')}</a>"
+            admin_warn = (
+                    f"🚨<b>BOT IS NO LONGER ADMIN</b>\n\n"
+                    f"Deal forcibly ended.\n"
+                    f"Group ID: <code>{group_id}</code>\n"
+                    f"<b>Buyer:</b> {buyer_link}\n"
+                    f"<b>Seller:</b> {seller_link}\n\n"
+                    f"<code>/leave {group_id}</code>\n to force bot exit this group."
+            )
+            remove_active_deal(deal_id)
+            try:
+                await context.bot.send_message(ADMIN_ID, admin_warn, parse_mode='HTML')
+            except Exception as e:
+                print(f"Error sending admin warning: {e}")
+            try:
+                await query.edit_message_text(
+                    "❌ Deal ended: Bot is NOT admin. Contact the admin for resolution.", parse_mode='HTML'
+                )
+            except Exception:
+                pass
+            return
     
     if query.data == "start_deal":
         if update.effective_chat.type not in ['group', 'supergroup', 'channel']:
@@ -714,6 +1193,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     continue
                 await query.answer("There's already an active deal in this group ❌\n\n Please wait for it to complete.")
                 return
+            
 
         
         # Save initial deal data
@@ -729,6 +1209,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
         save_active_deal(deal_id, deal_data)
         context.chat_data['deal_id'] = deal_id
+        with open('custom.json', 'r', encoding='utf-8') as f:
+            custom = json.load(f)
+
+        brand_name = custom.get("brand_name", "FLUXX")
         keyboard = [
             [InlineKeyboardButton("Buyer", callback_data="buyer"),
              InlineKeyboardButton("Seller", callback_data="seller")],
@@ -736,7 +1220,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
-            format_text("FLUXX ESCROW SERVICE\n\nPlease select your role:", "italic"),
+            format_text(f"{brand_name} ESCROW SERVICE\n\nPlease select your role:", "italic"),
             reply_markup=reply_markup,
             parse_mode='HTML'
         )
@@ -786,7 +1270,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             
             await query.edit_message_text(
-                "<b>𝗙𝗟𝗨𝗫𝗫 𝗘𝗦𝗖𝗥𝗢𝗪 𝗦𝗘𝗥𝗩𝗜𝗖𝗘</b>\n\n"
+                "<b>𝗘𝗦𝗖𝗥𝗢𝗪 𝗦𝗘𝗥𝗩𝗜𝗖𝗘</b>\n\n"
                 f"Buyer: <a href='tg://user?id={deal_data['buyer']}'>{buyer.first_name}</a>\n"
                 f"Seller: <a href='tg://user?id={deal_data['seller']}'>{seller.first_name}</a>\n\n"
                 f"𝗕𝘂𝘆𝗲𝗿, 𝗽𝗹𝗲𝗮𝘀𝗲 𝗰𝗵𝗼𝗼𝘀𝗲 𝘁𝗵𝗲 𝘁𝘆𝗽𝗲 𝗼𝗳 𝗱𝗲𝗮𝗹:",
@@ -816,6 +1300,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if query.from_user.id != deal_data['buyer']:
             await query.answer("Only the buyer can select the deal type", show_alert=True)
             return
+                      
+        
 
         deal_type_display = DEAL_TYPE_DISPLAY.get(query.data, query.data)
         deal_data["deal_type"] = query.data
@@ -835,7 +1321,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         await query.edit_message_text(
-            f"<b>𝗙𝗟𝗨𝗫𝗫 𝗘𝗦𝗖𝗥𝗢𝗪 𝗦𝗘𝗥𝗩𝗜𝗖𝗘</b>\n\n"
+            f"<b>𝗘𝗦𝗖𝗥𝗢𝗪 𝗦𝗘𝗥𝗩𝗜𝗖𝗘</b>\n\n"
             f"👤 Buyer: <a href='tg://user?id={deal_data['buyer']}'>{buyer.first_name}</a>\n"
             f"👥 Seller: <a href='tg://user?id={deal_data['seller']}'>{seller.first_name}</a>\n\n"
             f"🔵 Deal Type: <b>{deal_type_display}</b>\n\n"
@@ -877,7 +1363,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         msg = await query.edit_message_text(
-            f"<b>𝗙𝗟𝗨𝗫𝗫 𝗘𝗦𝗖𝗥𝗢𝗪 𝗦𝗘𝗥𝗩𝗜𝗖𝗘</b>\n\n"
+            f"<b>𝗘𝗦𝗖𝗥𝗢𝗪 𝗦𝗘𝗥𝗩𝗜𝗖𝗘</b>\n\n"
             f"👤 Buyer: <a href='tg://user?id={deal_data['buyer']}'>{buyer.first_name}</a>\n"
             f"👥 Seller: <a href='tg://user?id={deal_data['seller']}'>{seller.first_name}</a>\n\n"
             f"🔵 Deal Type: <b>{deal_type_display}</b>\n"
@@ -925,11 +1411,16 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data.startswith("confirm_form_"):
         deal_id = query.data.split("_")[2]
         deal_data = get_active_deal(deal_id)
+        # Telethon admin check
+        is_admin = await ensure_bot_admin_telethon(query.message.chat.id)
+        if not is_admin:
+            await query.answer("Bot is not an admin in this group or admin session is missing ❌", show_alert=True)
+            return
         
         if not deal_data:
             await query.answer("Deal not found", show_alert=True)
             return
-            
+        
         if query.from_user.id not in [deal_data['buyer'], deal_data['seller']]:
             await query.answer("Only buyer and seller can confirm", show_alert=True)
             return
@@ -944,6 +1435,24 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         deal_data['confirmations'].append(query.from_user.id)
         update_active_deal(deal_id, {'confirmations': deal_data['confirmations']})
 
+        # Always show the agreement message after each user's confirmation
+        buyer_name = deal_data.get('buyer_name', '')
+        seller_name = deal_data.get('seller_name', '')
+        timer_hours = deal_data.get('timer_hours', 1)
+        terms = deal_data.get('terms_and_conditions', None)
+        timer_display = f"{timer_hours} Hour{'s' if timer_hours != 1 else ''}"
+        confirm_msg = (
+            f"<b>𝗘𝗦𝗖𝗥𝗢𝗪 𝗦𝗘𝗥𝗩𝗜𝗖𝗘</b>\n\n"
+            f"👤 Buyer: <a href='tg://user?id={deal_data['buyer']}'>{buyer_name}</a>\n"
+            f"👥 Seller: <a href='tg://user?id={deal_data['seller']}'>{seller_name}</a>\n"
+            f"🔵 Deal: {deal_data['deal_type']}\n"
+            f"💰 Amount: ${deal_data['amount']:.2f}\n\n"
+            f"⏰ Timer: {timer_display}\n\n"
+        )
+        if terms:
+            confirm_msg += f"<b>📑 TERMS AND CONDITIONS</b>:\n<i>{terms}</i>\n\n"
+        confirm_msg += "<i>Both buyer and seller must confirm to proceed</i>"
+
         if len(deal_data['confirmations']) == 1:
             other_user_id = deal_data['seller'] if query.from_user.id == deal_data['buyer'] else deal_data['buyer']
             other_user = await context.bot.get_chat(other_user_id)
@@ -951,6 +1460,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"Waiting for <a href='tg://user?id={other_user_id}'>{other_user.first_name}</a> to confirm",
                 parse_mode='HTML'
             )
+           
         
         if len(deal_data['confirmations']) == 2:
             # Both confirmed, proceed to deposit
@@ -965,8 +1475,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
-                await query.edit_message_text(
-                    f"<b>𝗙𝗟𝗨𝗫𝗫 𝗘𝗦𝗖𝗥𝗢𝗪 𝗦𝗘𝗥𝗩𝗜𝗖𝗘</b>\n\n"
+                msg = await query.edit_message_text(
+                    f"<b>ESCROW SERVICE</b>\n\n"
                     f"Please complete your payment of ${deal_data['amount']:.2f}\n\n"
                     f"Use the Payment Link Below 👇\n"
                     f"Track ID: <code>{track_id}</code>\n"
@@ -975,6 +1485,19 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=reply_markup,
                     parse_mode='HTML'
                 )
+                # PIN payment message, and handle pin slot limitation
+                pins = context.chat_data.get('pins', [])
+                try:
+                    await context.bot.pin_chat_message(update.effective_chat.id, msg.message_id)
+                    pins.append(msg.message_id)
+                    # Unpin oldest if more than 4
+                    if len(pins) > 4:
+                        to_unpin = pins.pop(0)
+                        try:
+                            await context.bot.unpin_chat_message(update.effective_chat.id, to_unpin)
+                        except Exception: pass
+                    context.chat_data['pins'] = pins
+                except Exception: pass
         else:
             await query.answer("Confirmation received, waiting for other party", show_alert=True)
 
@@ -1113,7 +1636,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         timer_display = f"{timer_hours} Hour{'s' if timer_hours > 1 else ''}"
         
         await query.edit_message_text(
-            f"<b>⚠️ FLUXX ESCROW BOT - PAYMENT CONFIRMED ✅</b>\n\n"
+            f"<b>PAYMENT CONFIRMED ✅</b>\n\n"
             f"💵 <b>Deposit Amount:</b> ${amount:.2f}\n"
             f"✅ <b>Payment confirmed by:</b> <a href='tg://user?id={deal_data['buyer']}'>{buyer.first_name}</a>\n"
             f"🔄 <b>Escrow Fee:</b> ${fee:.2f}\n"
@@ -1160,6 +1683,31 @@ def get_remaining_time(payment_time, timer_minutes=60):
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Fix: Check for awaiting_terms instead of AWAITING_TOS state
+    if context.user_data.get('awaiting_terms'):
+        tos_prompt_id = context.user_data.get('tos_prompt_msg_id')
+        if not tos_prompt_id:
+            await update.message.reply_text("Unexpected error: Terms prompt missing. Start the process again.")
+            context.user_data['awaiting_terms'] = False
+            context.user_data.pop('state', None)
+            return
+        if not update.message.reply_to_message or update.message.reply_to_message.message_id != tos_prompt_id:
+            return
+        # User replied to correct prompt: process the form as TOS step
+        await process_form(update, context)
+        return
+
+    # Ensure only reply to the last form in group is accepted as form input
+    if context.user_data.get('awaiting_form'):
+        form_prompt_id = context.user_data.get('form_prompt_msg_id') or context.chat_data.get('awaiting_form_id')
+        if not update.message.reply_to_message or update.message.reply_to_message.message_id != form_prompt_id:
+            # Ignore random messages (don't spam invalid), unless it looks like form (e.g., starts with Buyer:/Seller:/Deal:/Price:)
+            suspicious_starts = ["buyer:", "seller:", "deal:", "price:"]
+            if any(update.message.text.strip().lower().startswith(s) for s in suspicious_starts):
+                await update.message.reply_text("To submit a deal form, please REPLY to the bot's form instruction message.")
+            return
+
+    # Remove the redundant AWAITING_TOS check since we handle it above
     if context.user_data.get("state") == "AMOUNT":
         if not update.message.reply_to_message or update.message.reply_to_message.message_id != context.user_data.get("prompt_message_id"):
             return
@@ -1217,7 +1765,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 msg = await update.message.reply_text(
-                    f"<b>𝗙𝗟𝗨𝗫𝗫 𝗘𝗦𝗖𝗥𝗢𝗪 𝗦𝗘𝗥𝗩𝗜𝗖𝗘</b>\n\n"
+                    f"<b>𝗘𝗦𝗖𝗥𝗢𝗪 𝗦𝗘𝗥𝗩𝗜𝗖𝗘</b>\n\n"
                     f"Please complete your payment of ${total:.3f}\n\n"
                     f"Use the Payment Link Below 👇\n"
                     f"Track ID: <code>{track_id}</code>\n"
@@ -1248,9 +1796,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif context.user_data.get('awaiting_password'):
         await handle_2fa_password(update, context)
     else:
-        await process_form(update, context)
-
-
+        # Only process the form if this is a reply to the instruction
+        if context.user_data.get('awaiting_form'):
+            form_prompt_id = context.user_data.get('form_prompt_msg_id') or context.chat_data.get('awaiting_form_id')
+            if not update.message.reply_to_message or update.message.reply_to_message.message_id != form_prompt_id:
+                return  # ignore random messages
+            await process_form(update, context)
+            if not context.user_data.get('awaiting_form'):
+                context.chat_data.pop('awaiting_form_id', None)
+                context.user_data.pop('form_prompt_msg_id', None)
+        else:
+            await process_form(update, context)
 async def handle_complaint(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     complaint_text = update.message.text
@@ -1289,7 +1845,7 @@ async def handle_complaint(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     admin_message = (
         "╔══════════════════════╗\n"
-        "║   FLUXX ESCROW SERVICE \n"
+        "║   ESCROW SERVICE \n"
         "╚══════════════════════╝\n\n"
         "*COMPLAINT REPORT ⚠*\n"
         "───────────────────\n\n"
@@ -1425,7 +1981,20 @@ async def handle_seller_confirm(update: Update, context: ContextTypes.DEFAULT_TY
         status='successful'
     )
 
-    await query.edit_message_text("Payment confirmed ✅\n\n The deal has been marked as successful.")
+    msg = await query.edit_message_text("Payment confirmed ✅\n\n The deal has been marked as successful.")
+    # PIN paid message, and handle pin slot limitation
+    pins = context.chat_data.get('pins', [])
+    try:
+        await context.bot.pin_chat_message(update.effective_chat.id, msg.message_id)
+        pins.append(msg.message_id)
+        # Unpin oldest if more than 4
+        if len(pins) > 4:
+            to_unpin = pins.pop(0)
+            try:
+                await context.bot.unpin_chat_message(update.effective_chat.id, to_unpin)
+            except Exception: pass
+        context.chat_data['pins'] = pins
+    except Exception: pass
     keyboard = [
             [InlineKeyboardButton("👍", callback_data=f"review_positive_{deal_data['seller']}"),
              InlineKeyboardButton("👎", callback_data=f"review_negative_{deal_data['seller']}")]
@@ -1666,7 +2235,7 @@ async def handle_getdeal(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await update.message.reply_text(
-                f"<b>𝗙𝗟𝗨𝗫𝗫 𝗘𝗦𝗖𝗥𝗢𝗪 𝗦𝗘𝗥𝗩𝗜𝗖𝗘</b>\n\n"
+                f"<b>𝗘𝗦𝗖𝗥𝗢𝗪 𝗦𝗘𝗥𝗩𝗜𝗖𝗘</b>\n\n"
                 f"Buyer: <a href='tg://user?id={deal_data['buyer']}'>{buyer.first_name}</a>\n"
                 f"Seller: <a href='tg://user?id={deal_data['seller']}'>{seller.first_name}</a>\n\n"
                 f"𝗕𝘂𝘆𝗲𝗿, 𝗽𝗹𝗲𝗮𝘀𝗲 𝗰𝗵𝗼𝗼𝘀𝗲 𝘁𝗵𝗲 𝘁𝘆𝗽𝗲 𝗼𝗳 𝗱𝗲𝗮𝗹:",
@@ -1674,6 +2243,11 @@ async def handle_getdeal(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode='HTML'
             )
         else:
+            with open('custom.json', 'r', encoding='utf-8') as f:
+                custom = json.load(f)
+
+            brand_name = custom.get("brand_name", "FLUXX")
+            
             keyboard = [
                 [InlineKeyboardButton("Buyer", callback_data="buyer"),
                  InlineKeyboardButton("Seller", callback_data="seller")],
@@ -1681,7 +2255,7 @@ async def handle_getdeal(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await update.message.reply_text(
-                format_text("FLUXX ESCROW SERVICE\n\nPlease select your role:", "italic"),
+                format_text(f"{brand_name} ESCROW SERVICE\n\nPlease select your role:", "italic"),
                 reply_markup=reply_markup,
                 parse_mode='HTML'
             )
@@ -1703,7 +2277,7 @@ async def handle_getdeal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await update.message.reply_text(
-            f"<b>⚠️ FLUXX ESCROW BOT - PAYMENT CONFIRMED ✅</b>\n\n"
+            f"<b>PAYMENT CONFIRMED ✅</b>\n\n"
             f"💵 Deposit Amount: ${amount:.2f}\n"
             f"✅ Payment confirmed from <a href='tg://user?id={deal_data['buyer']}'>{buyer.first_name}</a>\n"
             f"🔄 Escrow Fee: ${fee:.2f}\n"
@@ -1728,11 +2302,14 @@ async def handle_getdeal(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_help_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     lang = query.data.split('_')[1]
+    with open('custom.json', 'r', encoding='utf-8') as f:
+        custom = json.load(f)
+    brand_name = custom.get("brand_name", "FLUXX")
     keyboard = [[InlineKeyboardButton("Back 🏠", callback_data="mainmenu")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     help_texts = {
-        'en': """
-🔰 *How to use FLUXX Escrow:*
+        'en': f"""
+🔰 *How to use {brand_name} Escrow:*
 
 1️⃣ *Start a Deal:*
 - Click "Start Deal"
@@ -1754,8 +2331,8 @@ async def handle_help_language(update: Update, context: ContextTypes.DEFAULT_TYP
 - Report Scam to Moderator
 - Contact mod if issues arise
         """,
-        'hi': """
-🔰 *FLUXX Escrow ka upyog kaise karein:*
+        'hi': f"""
+🔰 *{brand_name} Escrow ka upyog kaise karein:*
 
 1️⃣ *Deal shuru karein:*
 - "Start Deal" par click karein
@@ -1787,125 +2364,23 @@ async def handle_help_language(update: Update, context: ContextTypes.DEFAULT_TYP
 
 import random
 
-async def handle_on(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_getgroups(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.effective_user.id) != ADMIN_ID:
-        await update.message.reply_text("Only admin can use this command.")
+        await update.message.reply_text("You are not authorized to use this command.")
         return
+    try:
+        with open("groups.json", "rb") as f:
+            await update.message.reply_document(
+                document=f,
+                filename="groups.json",
+                caption="Here are all groups created with bot as admin"
+            )
+    except FileNotFoundError:
+        await update.message.reply_text("No groups.json group log found yet.")
+    except Exception as e:
+        await update.message.reply_text(f"Could not send file: {e}")
 
-    global telethon_client, client_listening
-
-    if client_listening:
-        await update.message.reply_text("Client is already listening!")
-        return
-
-    if not await check_admin_session():
-        await update.message.reply_text("You need to login first!")
-        return
-
-    telethon_client = TelegramClient('admin_session', API_ID, API_HASH)
-    await telethon_client.connect()
-
-    @telethon_client.on(events.NewMessage(pattern='/create'))
-    async def create_handler(event):
-        if str(event.sender_id) == ADMIN_ID:
-            try:
-                unique_id = f"{random.randint(0, 999):03d}"
-                group_title = f"𝙵𝙻𝚄𝚇𝚇 𝙴𝚂𝙲𝚁𝙾𝚆 𝙶𝚁𝙾𝚄𝙿 {unique_id}"
-
-                admin = await telethon_client.get_entity(int(ADMIN_ID))
-                bot_username = (await context.bot.get_me()).username
-                bot = await telethon_client.get_input_entity(bot_username)
-
-                # Create the group
-                await telethon_client(CreateChatRequest(
-                    users=[admin, bot],
-                    title=group_title
-                ))
-
-                print(f"Group created")
-
-                dialogs = await telethon_client(GetDialogsRequest(
-                    offset_date=None,
-                    offset_id=0,
-                    offset_peer=InputPeerEmpty(),
-                    limit=10,  # Get last 10 chats
-                    hash=0
-                ))
-
-                chat_id = None
-                for dialog in dialogs.chats:
-                    if dialog.title == group_title:  # Match by title
-                        chat_id = dialog.id
-                        break
-
-                if chat_id is None:
-                    await update.message.reply_text("⚠️ Group creation failed: Could not retrieve chat ID.")
-                    return
-                
-                print(f">>> Successfully retrieved chat_id: {chat_id}")
-                try:
-                    with open('config.json', 'r') as f:
-                        config = json.load(f)
-                    
-                    profile_url = config.get('profileurl', '')
-                    
-                    if profile_url and profile_url.strip():
-                        
-                        import requests
-                        from io import BytesIO
-                        
-                        response = requests.get(profile_url)
-                        if response.status_code == 200:
-                            image_data = BytesIO(response.content)
-                            # Upload and set as profile picture
-                            await telethon_client(functions.channels.EditPhotoRequest(
-                                channel=chat_id,
-                                photo=await telethon_client.upload_file(image_data)
-                            ))
-                            print(f">>> Successfully set profile picture from URL")
-                        else:
-                            print(f">>> Failed to download profile picture: HTTP {response.status_code}")
-                    else:
-                        print(f">>> No profile URL provided in config")
-                except Exception as e:
-                    print(f">>> Failed to set profile picture: {str(e)}")
-                    # If setting profile picture fails, we continue with group creation
-        
-                await telethon_client.edit_admin(
-                    chat_id,
-                    bot,
-                    is_admin=True,
-                    add_admins=False,
-                    pin_messages=True,
-                    delete_messages=True,
-                    ban_users=True,
-                    invite_users=True
-                )
-
-                invite = await telethon_client(ExportChatInviteRequest(
-                    peer=chat_id,
-                    legacy_revoke_permanent=True,
-                    expire_date=None,
-                    usage_limit=None
-                ))
-
-                await event.reply("✅ Group created successfully!\n\n"
-                                f"Title: {group_title}\n\n"
-                                f"Join here: {invite.link}")
-
-            except FloodWaitError as e:
-                await event.reply(f"⚠️ Too many requests. Please try again after {e.seconds} seconds.")
-            except UserNotMutualContactError:
-                await event.reply("⚠️ The bot needs to be able to see your messages. Please start a chat with the bot first.")
-            except Exception as e:
-                import traceback
-                print(f"Error in create_handler: {str(e)}")
-                print(f"Traceback: {traceback.format_exc()}")
-                await event.reply(f"⚠️ Creation failed: {str(e)}")
-
-    client_listening = True
-    await update.message.reply_text("*Client is On ✅*", parse_mode='Markdown') 
-
+# REMOVED handle_on function
 
 async def handle_off(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.effective_user.id) != ADMIN_ID:
@@ -1914,11 +2389,7 @@ async def handle_off(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     global telethon_client, client_listening
     
-    if not client_listening:
-        await update.message.reply_text("*Client is already off ❌*", parse_mode="Markdown")
-        return
-        
-    await telethon_client.disconnect()
-    telethon_client = None
-    client_listening = False
-    await update.message.reply_text("Client stopped listening! ✅")
+    if telethon_client is not None and telethon_client.is_connected():
+        await telethon_client.disconnect()
+        telethon_client = None
+    await update.message.reply_text("Persistent Telethon client stopped/disconnected.")

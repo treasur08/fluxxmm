@@ -1,0 +1,7 @@
+{
+  "start_message": "\nWe help people buy and sell things safely🤝\n\n📝 Quick Deal Setup:\nUse the /form command in any group to quickly create a deal!",
+  "form_message": "<b>Deal Setup Form</b>\n\nPlease provide the following details in <b>this format</b>:\n\n<b>Buyer:</b> @username\n<b>Seller:</b> @username\n<b>Deal:</b> Description of item/service\n<b>Price:</b> $amount\n<b>Time:</b> duration (optional)\n\n<b>Example:</b>\n<code>Buyer: @buyer</code>\n<code>Seller: @seller</code>\n<code>Deal: Selling PS4</code>\n<code>Price: $2000</code>\n<code>Time: 2 hours</code>\n\n<i>If <b>Time</b> is not specified, the default duration of <u>1 hour</u> will be set.</i>",
+  "escrow_bot_name": "CUSTOM Midleman Bot",
+  "brand_name": "CUSTOM",
+  "tos_prompt_message": "TERMS & CONDITIONS OF DEAL\n\nPlease reply to this message and provide all relevant rules and obligations regarding this transaction.\n\n• Clearly outline expectations for both parties.\n• State any specific rules, payment terms, return/refund policies, or time limits.\n• Example:\n  All payments must be made in advance. No refunds unless agreed by both parties. Both buyer and seller are expected to adhere to group guidelines.\n\nEnsure that everything important to this deal is included for full clarity and transparency."
+}
