@@ -6,6 +6,10 @@ import asyncio
 from telethon import TelegramClient
 from telethon import functions, types
 from telethon.tl.functions.messages import CreateChatRequest, ExportChatInviteRequest,  AddChatUserRequest, EditChatPhotoRequest
+from telethon.tl.functions.channels import GetParticipantRequest
+from telethon.tl.functions.messages import GetFullChatRequest
+from telethon.tl.types import ChatAdminRights, ChannelParticipantAdmin, ChannelParticipantCreator
+from telethon.errors import UserNotParticipantError, ChatAdminRequiredError, ChannelPrivateError
 from telethon.errors import FloodWaitError, UserNotMutualContactError
 from telethon.tl.functions.messages import GetDialogsRequest
 from telethon.tl.types import InputPeerEmpty, InputChatUploadedPhoto
@@ -51,20 +55,28 @@ def calculate_fee(amount, deal_type):
     return amount * (fee_percentage / 100)
 
 async def is_bot_admin(context, chat_id):
+    """Robust admin check using status and permissions."""
     bot_user = await context.bot.get_me()
     try:
         admins = await context.bot.get_chat_administrators(chat_id)
+        is_admin = False
         for admin in admins:
+            # Print debug info for diagnosis
+            print(f"[is_bot_admin] user.id={admin.user.id} status={getattr(admin, 'status', None)} can_manage_chat={getattr(admin, 'can_manage_chat', None)}")
             if admin.user.id == bot_user.id:
-                return True
-        return False
+                # Check admin via status/capabilities, not only list presence
+                status = getattr(admin, 'status', None)
+                if status in ('administrator', 'creator') or getattr(admin, 'can_manage_chat', False):
+                    is_admin = True
+                break
+        return is_admin
     except Exception as e:
         print(f"[is_bot_admin] Error checking admin status: {e}")
         return False
 
 
 async def handle_leave(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if str(update.effective_user.id) != str(ADMIN_ID):
+    if update.effective_user.id != str(ADMIN_ID):
         await update.message.reply_text("You are not authorized to use this command.")
         return
     group_id = None
@@ -205,6 +217,10 @@ async def handle_form(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.type not in ['group', 'supergroup']:
         await update.message.reply_text("This command can only be used in a group.")
         return
+    # created = await start_telethon_client()
+    # if not created:
+    #     await update.message.reply_text("*Admin needs to login first ⚠*", parse_mode='Markdown')
+    #     return
     
     is_admin = await ensure_bot_admin_telethon(update.effective_chat.id)
     if not is_admin:
@@ -309,50 +325,152 @@ def parse_time_duration(time_text):
     return None
 
 
-
-async def ensure_bot_admin_telethon(chat_id, bot_username=None):
+async def ensure_bot_admin_telethon(chat_id, bot_username=None, context=None):
     """
-    Uses the persistent Telethon client for admin status check.
-    Returns True if bot is admin, False otherwise.
+    Check if bot is admin in a group/channel using Telethon.
+    Works with private groups and channels.
+    
+    Args:
+        chat_id: The chat ID to check
+        bot_username: Bot username (optional, will read from config if not provided)
+        context: Bot context (optional, for getting bot info)
+    
+    Returns:
+        bool: True if bot is admin, False otherwise
     """
+    # TELETHON CHECK 
     global telethon_client
     started = await start_telethon_client()
     if not started:
+        print(f"[ensure_bot_admin_telethon] Telethon client did NOT start. Returning False.")
         return False
+    
     client = telethon_client
+    
+    # Get bot username from various sources
     if not bot_username:
         try:
-            with open('config.json', 'r') as f:
-                config = json.load(f)
-            bot_username = config.get('bot_username') or config.get('username')
-        except Exception:
+            # Try to get from context first
+            if context:
+                bot_me = await context.bot.get_me()
+                bot_username = bot_me.username
+                print(f"[ensure_bot_admin_telethon] Got bot_username from context: @{bot_username}")
+            else:
+                # Fallback to config file
+                with open('config.json', 'r') as f:
+                    config = json.load(f)
+                bot_username = config.get('bot_username') or config.get('username')
+                print(f"[ensure_bot_admin_telethon] Read bot_username from config: {bot_username}")
+        except Exception as e:
+            print(f"[ensure_bot_admin_telethon] Failed to get bot_username: {e}")
             bot_username = None
+    
     if not bot_username:
+        print(f"[ensure_bot_admin_telethon] No bot_username provided/found. Returning False.")
         return False
+    
+    # Ensure username has @ prefix
     if not bot_username.startswith('@'):
         bot_username = '@' + bot_username
+    
+    print(f"[ensure_bot_admin_telethon] Using bot_username: {bot_username}")
+    
     try:
-        bot_entity = await client.get_entity(bot_username)
-    except Exception:
-        return False
-    try:
-        from telethon.tl.functions.channels import GetParticipantRequest
-        from telethon.tl.types import ChannelParticipantAdmin, ChannelParticipantCreator
+        # Get the chat entity
         try:
-            participant = await client(GetParticipantRequest(chat_id, bot_entity))
-            if isinstance(participant.participant, (ChannelParticipantAdmin, ChannelParticipantCreator)):
-                return True
-        except Exception:
-            participants = await client.get_participants(chat_id)
-            for user in participants:
-                if user.id == bot_entity.id:
-                    rights = getattr(user, 'admin_rights', None)
-                    if rights:
+            chat_entity = await client.get_entity(chat_id)
+            print(f"[ensure_bot_admin_telethon] Got chat entity: {chat_entity.title if hasattr(chat_entity, 'title') else 'Unknown'}")
+        except Exception as e:
+            print(f"[ensure_bot_admin_telethon] Failed to get chat entity for {chat_id}: {e}")
+            return False
+        
+        # Get the bot entity
+        try:
+            bot_entity = await client.get_entity(bot_username)
+            bot_id = bot_entity.id
+            print(f"[ensure_bot_admin_telethon] Got bot entity ID: {bot_id}")
+        except Exception as e:
+            print(f"[ensure_bot_admin_telethon] Failed to get bot entity for {bot_username}: {e}")
+            return False
+        
+        # Check if it's a channel/supergroup or regular group
+        if hasattr(chat_entity, 'megagroup') or hasattr(chat_entity, 'broadcast'):
+            # This is a channel or supergroup
+            try:
+                participant = await client(GetParticipantRequest(
+                    channel=chat_entity,
+                    participant=bot_entity
+                ))
+                
+                # Check if bot is admin or creator
+                if isinstance(participant.participant, (ChannelParticipantAdmin, ChannelParticipantCreator)):
+                    print(f"[ensure_bot_admin_telethon] Bot is admin/creator in channel/supergroup")
+                    
+                    # Additional check for admin rights if it's an admin
+                    if isinstance(participant.participant, ChannelParticipantAdmin):
+                        admin_rights = participant.participant.admin_rights
+                        if admin_rights:
+                            print(f"[ensure_bot_admin_telethon] Bot admin rights: delete_messages={admin_rights.delete_messages}, "
+                                  f"ban_users={admin_rights.ban_users}, invite_users={admin_rights.invite_users}, "
+                                  f"pin_messages={admin_rights.pin_messages}")
+                            return True
+                        else:
+                            print(f"[ensure_bot_admin_telethon] Bot is admin but has no admin rights")
+                            return False
+                    else:
+                        # Bot is creator
                         return True
-                    break
+                else:
+                    print(f"[ensure_bot_admin_telethon] Bot is not admin in channel/supergroup")
+                    return False
+                    
+            except UserNotParticipantError:
+                print(f"[ensure_bot_admin_telethon] Bot is not a participant in the channel/supergroup")
+                return False
+            except ChatAdminRequiredError:
+                print(f"[ensure_bot_admin_telethon] Admin required to check participants")
+                return False
+            except ChannelPrivateError:
+                print(f"[ensure_bot_admin_telethon] Channel is private and we don't have access")
+                return False
+            except Exception as e:
+                print(f"[ensure_bot_admin_telethon] Error checking channel participant: {e}")
+                return False
+        
+        else:
+            # This is a regular group
+            try:
+                full_chat = await client(GetFullChatRequest(chat_id=chat_entity.id))
+                chat_full = full_chat.full_chat
+                
+                # Check if bot is in admins list
+                for participant in full_chat.users:
+                    if participant.id == bot_id:
+                        # Found the bot, now check if it's admin
+                        for chat_participant in chat_full.participants.participants:
+                            if hasattr(chat_participant, 'user_id') and chat_participant.user_id == bot_id:
+                                participant_type = type(chat_participant).__name__
+                                print(f"[ensure_bot_admin_telethon] Bot participant type: {participant_type}")
+                                
+                                if 'Admin' in participant_type or 'Creator' in participant_type:
+                                    print(f"[ensure_bot_admin_telethon] Bot is admin/creator in regular group")
+                                    return True
+                                else:
+                                    print(f"[ensure_bot_admin_telethon] Bot is not admin in regular group")
+                                    return False
+                        break
+                
+                print(f"[ensure_bot_admin_telethon] Bot not found in group participants")
+                return False
+                
+            except Exception as e:
+                print(f"[ensure_bot_admin_telethon] Error checking regular group: {e}")
+                return False
+    
+    except Exception as e:
+        print(f"[ensure_bot_admin_telethon] Unexpected error: {e}")
         return False
-    except Exception:
-        return False
+
 
 async def process_form(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Only check admin if we're actually about to process form input (not for TOS etc)
@@ -851,7 +969,7 @@ async def handle_reviews(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def handle_fetch(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if str(update.effective_user.id) != ADMIN_ID:
+    if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("You are not authorized to use this command.")
         return
 
@@ -881,18 +999,16 @@ async def handle_fetch(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"⚠️ Error fetching groups: {str(e)}")
 
-
 async def handle_create(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global telethon_client
-    if update.effective_user.id != ADMIN_ID:
-        return
+    
     if update.effective_user.is_bot:
         await update.message.reply_text("This command can only be used by real users.")
         return
 
     created = await start_telethon_client()
     if not created:
-        await update.message.reply_text("Admin needs to login first!")
+        await update.message.reply_text("*Admin needs to login first ⚠*", parse_mode='Markdown')
         return
     client = telethon_client
         
@@ -1903,7 +2019,7 @@ async def handle_complaint(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop('complaint_message_id', None)
 
 async def handle_p2pfee(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if str(update.effective_user.id) != ADMIN_ID:
+    if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("You are not authorized to use this command.")
         return
 
@@ -1922,7 +2038,7 @@ async def handle_p2pfee(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Please provide a valid fee percentage")
 
 async def handle_bsfee(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if str(update.effective_user.id) != ADMIN_ID:
+    if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("You are not authorized to use this command.")
         return
 
@@ -1941,7 +2057,7 @@ async def handle_bsfee(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Please provide a valid fee percentage")
 
 async def handle_setfee(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if str(update.effective_user.id) != ADMIN_ID:
+    if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("You are not authorized to use this command.")
         return
 
@@ -1962,7 +2078,7 @@ async def handle_setfee(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_trades(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler for /trades command - sends the trades.txt file to admin"""
-    if str(update.effective_user.id) != ADMIN_ID:
+    if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("You are not authorized to use this command.")
         return
 
@@ -2062,7 +2178,7 @@ async def handle_seller_confirm(update: Update, context: ContextTypes.DEFAULT_TY
     await query.answer()
 
 async def handle_setsticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if str(update.effective_user.id) != ADMIN_ID:
+    if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("You are not authorized to use this command.")
         return
 
@@ -2083,7 +2199,7 @@ async def handle_setsticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_killdeal(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if str(update.effective_user.id) != ADMIN_ID:
+    if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("You are not authorized to use this command.")
         return
 
@@ -2182,7 +2298,7 @@ async def handle_killdeal(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_killall(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if str(update.effective_user.id) != ADMIN_ID:
+    if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("You are not authorized to use this command.")
         return
         
@@ -2230,7 +2346,7 @@ async def send_withdrawal_update_to_seller(bot, seller_id, status, amount, curre
 
 
 async def handle_getdeal(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if str(update.effective_user.id) != ADMIN_ID:
+    if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("You are not authorized to use this command.")
         return
     
@@ -2397,7 +2513,7 @@ async def handle_help_language(update: Update, context: ContextTypes.DEFAULT_TYP
 import random
 
 async def handle_getgroups(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if str(update.effective_user.id) != ADMIN_ID:
+    if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("You are not authorized to use this command.")
         return
     try:
@@ -2415,7 +2531,7 @@ async def handle_getgroups(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # REMOVED handle_on function
 
 async def handle_off(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if str(update.effective_user.id) != ADMIN_ID:
+    if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("Only admin can use this command.")
         return
         
