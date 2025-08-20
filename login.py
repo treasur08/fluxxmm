@@ -5,19 +5,17 @@ from telegram.ext import ContextTypes
 import os
 from dotenv import load_dotenv
 import asyncio
-
+from config import ADMIN_ID
 
 load_dotenv()
 
 API_ID = os.getenv('API_ID')
 API_HASH = os.getenv('API_HASH')
 SESSION_FILE = 'admin_session'
-ADMIN_ID = os.getenv('ADMIN_ID')
 
 
 async def handle_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    from handlers import start_telethon_client
-    if str(update.effective_user.id) != os.getenv('ADMIN_ID'):
+    if update.effective_user.id != os.getenv('ADMIN_ID'):
         await update.message.reply_text("Only admin can use this command")
         return
     
@@ -86,9 +84,7 @@ async def handle_2fa_password(update: Update, context: ContextTypes.DEFAULT_TYPE
         context.user_data.clear()
 
 async def handle_logout(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if str(update.effective_user.id) != os.getenv('ADMIN_ID'):
-        await update.message.reply_text("Only admin can use this command")
-        return
+   
         
     try:
         if os.path.exists(f'{SESSION_FILE}.session'):

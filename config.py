@@ -4,7 +4,7 @@ load_dotenv()
 
 TOKEN = os.getenv("TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
-ADMIN_ID = os.getenv("ADMIN_ID")
+ADMIN_ID = int(os.getenv("ADMIN_ID", "5991907369"))
 OXAPAY_API_KEY = os.getenv("OXAPAY_API_KEY")
 OXAPAY_PAYOUT_KEY = os.getenv("OXAPAY_PAYOUT_KEY")
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "echofluxx") 

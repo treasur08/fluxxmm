@@ -944,18 +944,27 @@ async def handle_create(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 from io import BytesIO
                 
                 response = requests.get(profile_url)
-                if response.status_code == 200:
-                    image_data = BytesIO(response.content)
-                    # Upload and set as profile picture
-                    await telethon_client(EditChatPhotoRequest(
-                        chat_id=chat_id,
-                        photo=InputChatUploadedPhoto(
-                            file=await telethon_client.upload_file(image_data)
-                        )
-                    ))
-                    print(f">>> Successfully set profile picture from URL")
+                if response.status_code == 200 and response.headers.get("Content-Type","").startswith("image"):
+                    try:
+                        from PIL import Image
+                        img = Image.open(BytesIO(response.content)).convert("RGB")
+                        temp_buf = BytesIO()
+                        img.save(temp_buf, format="JPEG")
+                        temp_buf.seek(0)
+                        temp_buf.name = "photo.jpg"  # Critical for telethon upload_file -> InputChatUploadedPhoto
+                        
+                        # Upload and set as profile picture
+                        await telethon_client(EditChatPhotoRequest(
+                            chat_id=chat_id,
+                            photo=InputChatUploadedPhoto(
+                                file=await telethon_client.upload_file(temp_buf)
+                            )
+                        ))
+                        print(f">>> Successfully set profile picture from URL (validated, JPEG + extension set)")
+                    except Exception as pic_ex:
+                        print(f">>> Image conversion or upload failed: {pic_ex}")
                 else:
-                    print(f">>> Failed to download profile picture: HTTP {response.status_code}")
+                    print(f">>> Failed to download profile picture or not an image. HTTP {response.status_code} Content-Type: {response.headers.get('Content-Type')}")
             else:
                 print(f">>> No profile URL provided in config")
         except Exception as e:
@@ -1010,6 +1019,17 @@ async def handle_create(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             print(f"Skipping redundant chat permissions update: {str(e)}")
 
+        # ---- DELETE RECENT SERVICE MESSAGES (created, photo, users added) ----
+        try:
+            from telethon.tl.types import MessageService
+            messages = await telethon_client.get_messages(chat_id, limit=10)
+            to_delete = [msg.id for msg in messages if isinstance(msg, MessageService)]
+            if to_delete:
+                await telethon_client.delete_messages(chat_id, to_delete)
+                print(f">>> Deleted group service messages: {to_delete}")
+        except Exception as e:
+            print(f"Error cleaning up service messages: {str(e)}")
+
         # 🔹 Generate invite link
         try:
             invite = await telethon_client(ExportChatInviteRequest(
@@ -1029,6 +1049,17 @@ async def handle_create(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Title: {group_title}\n\n"
             f"Join here: {invite_link}\n\n"
         )
+        # ANNOUNCE to group how to start a deal
+        try:
+            msg_body = (
+                f"<b>Welcome to {brand_name} ESCROW GROUP!</b>\n\n"
+                f"To start a new deal, simply send in this group.\n"
+                "<b>Ensure all instructions are followed carefully.</b>\n\n"
+            )
+            from telethon.tl.functions.messages import SendMessageRequest
+            await telethon_client(SendMessageRequest(peer=chat_id, message=msg_body))
+        except Exception as e:
+            print(f"Could not send usage announcement: {e}")
         # Notify ADMIN_ID and log group
         try:
             await context.bot.send_message(
