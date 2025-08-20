@@ -130,7 +130,7 @@ async def run_bot():
     application.add_handler(CommandHandler("login", handle_login, filters=filters.User(user_id=ADMIN_ID)))
     application.add_handler(CommandHandler("logout", handle_logout, filters=filters.User(user_id=ADMIN_ID)))
     application.add_handler(CommandHandler("setfee", handle_setfee, filters=filters.User(user_id=ADMIN_ID)))
-    application.add_handler(CommandHandler("create", handle_create, filters=filters.User(user_id=ADMIN_ID)))
+    application.add_handler(CommandHandler("create", handle_create))
     application.add_handler(CommandHandler("fetch", handle_fetch))
     application.add_handler(CommandHandler("off", handle_off))
     application.add_handler(CommandHandler("getgroups", handle_getgroups))

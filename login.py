@@ -15,8 +15,7 @@ SESSION_FILE = 'admin_session'
 
 
 async def handle_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != os.getenv('ADMIN_ID'):
-        await update.message.reply_text("Only admin can use this command")
+    if update.effective_user.id != ADMIN_ID:
         return
     
     phone = update.message.text.split(' ')[1] if len(update.message.text.split(' ')) > 1 else None

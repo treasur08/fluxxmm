@@ -884,7 +884,8 @@ async def handle_fetch(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_create(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global telethon_client
-    
+    if update.effective_user.id != ADMIN_ID:
+        return
     if update.effective_user.is_bot:
         await update.message.reply_text("This command can only be used by real users.")
         return
