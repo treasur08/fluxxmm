@@ -231,6 +231,23 @@ async def handle_form(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("A form is already being filled out in this group. Complete or cancel it before starting a new one.")
         return
    
+    group_id = update.effective_chat.id
+    active_deals = get_all_active_deals()
+    deal_id = None
+    cur_deal = None
+    for d_id, deal in active_deals.items():
+        if deal.get('group_id') == group_id and deal.get('status') != 'completed':
+            deal_id = d_id
+            cur_deal = deal
+            break
+    if cur_deal:
+        kb = []
+        if update.effective_user.id == cur_deal.get('starter') or str(update.effective_user.id) == str(ADMIN_ID):
+            kb = [[InlineKeyboardButton("End Deal", callback_data="back")]]
+        reply_markup = InlineKeyboardMarkup(kb) if kb else None
+        msg = "*There is already an active deal in this group ❌\n\n You must end the current deal before starting a new one*"
+        await update.message.reply_text(msg, reply_markup=reply_markup, parse_mode="Markdown")
+        return
     
     notified_flag = f"admin_notified_{update.effective_chat.id}"
     groups_file = "groups.json"
@@ -354,32 +371,27 @@ async def ensure_bot_admin_telethon(chat_id, bot_username=None, context=None):
             if context:
                 bot_me = await context.bot.get_me()
                 bot_username = bot_me.username
-                print(f"[ensure_bot_admin_telethon] Got bot_username from context: @{bot_username}")
             else:
                 # Fallback to config file
                 with open('config.json', 'r') as f:
                     config = json.load(f)
                 bot_username = config.get('bot_username') or config.get('username')
-                print(f"[ensure_bot_admin_telethon] Read bot_username from config: {bot_username}")
         except Exception as e:
             print(f"[ensure_bot_admin_telethon] Failed to get bot_username: {e}")
             bot_username = None
     
     if not bot_username:
-        print(f"[ensure_bot_admin_telethon] No bot_username provided/found. Returning False.")
         return False
     
     # Ensure username has @ prefix
     if not bot_username.startswith('@'):
         bot_username = '@' + bot_username
     
-    print(f"[ensure_bot_admin_telethon] Using bot_username: {bot_username}")
     
     try:
         # Get the chat entity
         try:
             chat_entity = await client.get_entity(chat_id)
-            print(f"[ensure_bot_admin_telethon] Got chat entity: {chat_entity.title if hasattr(chat_entity, 'title') else 'Unknown'}")
         except Exception as e:
             print(f"[ensure_bot_admin_telethon] Failed to get chat entity for {chat_id}: {e}")
             return False
@@ -388,7 +400,6 @@ async def ensure_bot_admin_telethon(chat_id, bot_username=None, context=None):
         try:
             bot_entity = await client.get_entity(bot_username)
             bot_id = bot_entity.id
-            print(f"[ensure_bot_admin_telethon] Got bot entity ID: {bot_id}")
         except Exception as e:
             print(f"[ensure_bot_admin_telethon] Failed to get bot entity for {bot_username}: {e}")
             return False
@@ -404,15 +415,12 @@ async def ensure_bot_admin_telethon(chat_id, bot_username=None, context=None):
                 
                 # Check if bot is admin or creator
                 if isinstance(participant.participant, (ChannelParticipantAdmin, ChannelParticipantCreator)):
-                    print(f"[ensure_bot_admin_telethon] Bot is admin/creator in channel/supergroup")
                     
                     # Additional check for admin rights if it's an admin
                     if isinstance(participant.participant, ChannelParticipantAdmin):
                         admin_rights = participant.participant.admin_rights
                         if admin_rights:
-                            print(f"[ensure_bot_admin_telethon] Bot admin rights: delete_messages={admin_rights.delete_messages}, "
-                                  f"ban_users={admin_rights.ban_users}, invite_users={admin_rights.invite_users}, "
-                                  f"pin_messages={admin_rights.pin_messages}")
+                           
                             return True
                         else:
                             print(f"[ensure_bot_admin_telethon] Bot is admin but has no admin rights")
@@ -450,7 +458,6 @@ async def ensure_bot_admin_telethon(chat_id, bot_username=None, context=None):
                         for chat_participant in chat_full.participants.participants:
                             if hasattr(chat_participant, 'user_id') and chat_participant.user_id == bot_id:
                                 participant_type = type(chat_participant).__name__
-                                print(f"[ensure_bot_admin_telethon] Bot participant type: {participant_type}")
                                 
                                 if 'Admin' in participant_type or 'Creator' in participant_type:
                                     print(f"[ensure_bot_admin_telethon] Bot is admin/creator in regular group")
@@ -1541,7 +1548,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Select your preferred language for help:",
             reply_markup=reply_markup
         )
-    
+    elif query.data == "rollback":
+        await handle_rollback(update, context)
     elif query.data == "cancel_form":
         context.user_data.clear()
         await query.message.delete()

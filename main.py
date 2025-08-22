@@ -29,38 +29,45 @@ PIN_TRACKER = {}
 ADMIN_MONITORS = {}
 
 async def monitor_admin_main(group_id, deal_id, bot, main_msg_id):
+    mon_key = f"{group_id}_{get_active_deal(deal_id).get('buyer')}_{get_active_deal(deal_id).get('seller')}"
     try:
-        while True:
-            active_deal = get_active_deal(deal_id)
-            if not active_deal or active_deal.get("status") != "deposited":
-                break
-            is_admin = await ensure_bot_admin_telethon(group_id)
-            if not is_admin:
-                buyer_link = f"<a href='tg://user?id={active_deal['buyer']}'>{active_deal.get('buyer_name', 'UNKNOWN')}</a>"
-                seller_link = f"<a href='tg://user?id={active_deal['seller']}'>{active_deal.get('seller_name', 'UNKNOWN')}</a>"
-                text = (
-                    f"🚨<b>BOT IS NO LONGER ADMIN</b>\n\n"
-                    f"Deal forcibly ended.\n"
-                    f"Group ID: <code>{group_id}</code>\n"
-                    f"<b>Buyer:</b> {buyer_link}\n"
-                    f"<b>Seller:</b> {seller_link}\n\n"
-                    f"<code>/leave {group_id}</code>\n to force bot exit this group."
-                )
-                await bot.send_message(ADMIN_ID, text, parse_mode='HTML')
-                remove_active_deal(deal_id)
-                try:
-                    await bot.edit_message_text(
-                        chat_id=group_id,
-                        message_id=main_msg_id,
-                        text="<b>❌ DEAL FORCIBLY ENDED\n\n Bot was REMOVED as admin. Please contact support.</b>",
-                        parse_mode='HTML'
+        try:
+            while True:
+                active_deal = get_active_deal(deal_id)
+                if not active_deal or active_deal.get("status") != "deposited":
+                    break
+                is_admin = await ensure_bot_admin_telethon(group_id)
+                if not is_admin:
+                    buyer_link = f"<a href='tg://user?id={active_deal['buyer']}'>{active_deal.get('buyer_name', 'UNKNOWN')}</a>"
+                    seller_link = f"<a href='tg://user?id={active_deal['seller']}'>{active_deal.get('seller_name', 'UNKNOWN')}</a>"
+                    text = (
+                        f"🚨<b>BOT IS NO LONGER ADMIN</b>\n\n"
+                        f"Deal forcibly ended.\n"
+                        f"Group ID: <code>{group_id}</code>\n"
+                        f"<b>Buyer:</b> {buyer_link}\n"
+                        f"<b>Seller:</b> {seller_link}\n\n"
+                        f"<code>/leave {group_id}</code>\n to force bot exit this group."
                     )
-                except Exception:
-                    pass
-                break
-            await asyncio.sleep(5)
-    except Exception as e:
-        print(f"[monitor_admin_main] Background admin monitor error: {e}")
+                    await bot.send_message(ADMIN_ID, text, parse_mode='HTML')
+                    remove_active_deal(deal_id)
+                    try:
+                        await bot.edit_message_text(
+                            chat_id=group_id,
+                            message_id=main_msg_id,
+                            text="<b>❌ DEAL FORCIBLY ENDED\n\n Bot was REMOVED as admin. Please contact support.</b>",
+                            parse_mode='HTML'
+                        )
+                    except Exception:
+                        pass
+                    break
+                await asyncio.sleep(5)
+        except Exception as e:
+            print(f"[monitor_admin_main] Background admin monitor error: {e}")
+    finally:
+        if mon_key in ADMIN_MONITORS:
+            del ADMIN_MONITORS[mon_key]
+
+
 async def handle_getcustom(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Sends custom.json to the admin."""
     if str(update.effective_user.id) != str(ADMIN_ID):
@@ -127,7 +134,7 @@ async def run_bot():
     application.add_handler(CommandHandler("getdeal", handle_getdeal))
     application.add_handler(CommandHandler("refund", handle_refund))
     application.add_handler(CommandHandler("form", handle_form))
-    application.add_handler(CommandHandler("login", handle_login, filters=filters.User(user_id=ADMIN_ID)))
+    application.add_handler(CommandHandler("login", handle_login))
     application.add_handler(CommandHandler("logout", handle_logout, filters=filters.User(user_id=ADMIN_ID)))
     application.add_handler(CommandHandler("setfee", handle_setfee, filters=filters.User(user_id=ADMIN_ID)))
     application.add_handler(CommandHandler("create", handle_create))
@@ -331,22 +338,36 @@ async def withdraw_callback(request: Request):
 
     return {"message": "ok"}
 
+
 async def check_payment_timeout(bot, group_id, deal_id, message_id):
     deal_data = get_active_deal(deal_id)
     if not deal_data:
         return
     
-    # Use custom timer or default to 1 hour
     timer_hours = deal_data.get('timer_hours', 1)
-    await asyncio.sleep(timer_hours * 3600)  # Convert hours to seconds
-    
-    # Check if deal is still active
+    check_interval = 10 
+    total_seconds = int(timer_hours * 3600)
+    elapsed = 0
+
+    while elapsed < total_seconds:
+        current_deal = get_active_deal(deal_id)
+        if not current_deal or current_deal.get('status') != 'deposited':
+            return  # End early if deal not active/deposited anymore
+        await asyncio.sleep(check_interval)
+        elapsed += check_interval
+
+    # Timer expired, check again before action
     current_deal = get_active_deal(deal_id)
     if not current_deal or current_deal.get('status') != 'deposited':
         return
-    
-    # Auto-involve moderator
+
     try:
+        # Get the group's invite link
+        try:
+            group_invite_link = await bot.export_chat_invite_link(group_id)
+        except Exception:
+            group_invite_link = "(Unable to fetch invite link)"
+
         await bot.edit_message_text(
             chat_id=group_id,
             message_id=message_id,
@@ -356,14 +377,13 @@ async def check_payment_timeout(bot, group_id, deal_id, message_id):
                  f"Deal ID: <code>{deal_id}</code>",
             parse_mode='HTML'
         )
-        
-        # Notify admin
         await bot.send_message(
             chat_id=ADMIN_ID,
             text=f"🚨 <b>AUTO-ESCALATION</b>\n\n"
                  f"Deal ID: <code>{deal_id}</code>\n"
                  f"Timer: {timer_hours} hours expired\n"
                  f"Group: {group_id}\n"
+                 f"Link: {group_invite_link}\n"
                  f"Status: Requires moderator intervention",
             parse_mode='HTML'
         )
