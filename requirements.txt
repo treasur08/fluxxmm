@@ -1,0 +1,10 @@
+python-telegram-bot
+python-dotenv
+requests
+quart
+fastapi
+uvicorn
+aiohttp
+httpx
+telethon
+Pillow

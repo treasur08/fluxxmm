@@ -1,0 +1,20 @@
+{
+    "data": {
+        "list": [
+            "BNB",
+            "BTC",
+            "DOGE",
+            "ETH",
+            "LTC",
+            "POL",
+            "SOL",
+            "TON",
+            "TRX",
+            "USDT"
+        ]
+    },
+    "message": "Operation completed successfully!",
+    "error": {},
+    "status": 200,
+    "version": "1.0.0"
+}

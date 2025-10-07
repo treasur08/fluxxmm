@@ -1,0 +1,114 @@
+[
+    {
+        "text": "USDT (TRC20)",
+        "coin": "USDT",
+        "network": "Tron(TRC20)",
+        "withdrawFee": "1",
+        "withdrawMin": "3"
+    },
+    {
+        "text": "BTC",
+        "coin": "BTC",
+        "network": "Bitcoin(BTC)",
+        "withdrawFee": "0.00003",
+        "withdrawMin": "0.0001"
+    },
+    {
+        "text": "ETH",
+        "coin": "ETH",
+        "network": "Ethereum(ERC20)",
+        "withdrawFee": "0.00015",
+        "withdrawMin": "0.002"
+    },
+    {
+        "text": "USDT (BEP20)",
+        "coin": "USDT",
+        "network": "BNB Smart Chain(BEP20)",
+        "withdrawFee": "0",
+        "withdrawMin": "10"
+    },
+    {
+        "text": "USDT (ERC20)",
+        "coin": "USDT",
+        "network": "Ethereum(ERC20)",
+        "withdrawFee": "0.95",
+        "withdrawMin": "10"
+    },
+    {
+        "text": "USDT (SOL)",
+        "coin": "USDT",
+        "network": "Solana(SOL)",
+        "withdrawFee": "0.5",
+        "withdrawMin": "10"
+    },
+    {
+        "text": "USDT (MATIC)",
+        "coin": "USDT",
+        "network": "Polygon(MATIC)",
+        "withdrawFee": "0.0084",
+        "withdrawMin": "5"
+    },
+    {
+        "text": "USDT (TON)",
+        "coin": "USDT",
+        "network": "Toncoin(TON)",
+        "withdrawFee": "0.15",
+        "withdrawMin": "10"
+    },
+    {
+        "text": "USDT (OP)",
+        "coin": "USDT",
+        "network": "Optimism(OP)",
+        "withdrawFee": "0.038",
+        "withdrawMin": "3"
+    },
+    {
+        "text": "USDT (ARB)",
+        "coin": "USDT",
+        "network": "Arbitrum One(ARB)",
+        "withdrawFee": "0.05",
+        "withdrawMin": "1"
+    },
+    {
+        "text": "XRP",
+        "coin": "XRP",
+        "network": "Ripple(XRP)",
+        "withdrawFee": "0.015",
+        "withdrawMin": "11"
+    },
+    {
+        "text": "SOLANA",
+        "coin": "SOL",
+        "network": "Solana(SOL)",
+        "withdrawFee": "0.000213",
+        "withdrawMin": "0.1"
+    },
+    {
+        "text": "LTC",
+        "coin": "LTC",
+        "network": "Litecoin(LTC)",
+        "withdrawFee": "0.0001",
+        "withdrawMin": "0.015"
+    },
+    {
+        "text": "TONCOIN",
+        "coin": "TON",
+        "network": "Toncoin(TON)",
+        "withdrawFee": "0.01",
+        "withdrawMin": "1.5"
+    },
+    {
+        "text": "BNB",
+        "coin": "BNB",
+        "network": "BNB Smart Chain(BEP20)",
+        "withdrawFee": "0.00001",
+        "withdrawMin": "0.008"
+    },
+    {
+        "text": "Tron",
+        "coin": "TRX",
+        "network": "Tron(TRC20)",
+        "withdrawFee": "0.8",
+        "withdrawMin": "10"
+    }
+]

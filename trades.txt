@@ -1,0 +1,18 @@
+[2025-09-21 09:38:23] Trade #ORDER-1CA4CA701BCB
+├── Amount: $1.00
+├── Buyer ID: 93266808
+├── Seller ID: 5991907369
+└── Status: SUCCESSFUL
+
+[2025-10-06 06:03:29] Trade #ORDER-3B41916BC6BD
+├── Amount: $1.00
+├── Buyer ID: 93266808
+├── Seller ID: 5991907369
+└── Status: SUCCESSFUL
+
+[2025-10-06 13:02:01] Trade #ORDER-CA67A4369C24
+├── Amount: $2.00
+├── Buyer ID: 93266808
+├── Seller ID: 5991907369
+└── Status: SUCCESSFUL
+

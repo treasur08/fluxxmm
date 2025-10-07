@@ -1,0 +1,37 @@
+{
+    "5991907369": {
+        "total_deals": 6,
+        "completed_deals": 2,
+        "referrer": null,
+        "balance": 0.0,
+        "total_wagered": 100.0
+    },
+    "7502333334": {
+        "total_deals": 5,
+        "completed_deals": 0,
+        "referrer": null,
+        "balance": 0.0,
+        "total_wagered": 50.0
+    },
+    "93266808": {
+        "total_deals": 2,
+        "completed_deals": 1,
+        "referrer": "5991907369",
+        "balance": 0.0,
+        "total_wagered": 20.0
+    },
+    "1914519929": {
+        "total_deals": 0,
+        "completed_deals": 0,
+        "referrer": null,
+        "balance": 0.0,
+        "total_wagered": 10.0
+    },
+    "6467186545": {
+        "total_deals": 2,
+        "completed_deals": 0,
+        "referrer": null,
+        "balance": 0.0,
+        "total_wagered": 0.0
+    }
+}

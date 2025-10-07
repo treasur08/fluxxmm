@@ -1,0 +1,34 @@
+{
+    "5991907369": {
+        "name": "Dev",
+        "trades": 1,
+        "positive": 1,
+        "negative": 0,
+        "p2p_trades": 1,
+        "bs_trades": 0,
+        "link": "tg://user?id=5991907369",
+        "reviewers": {
+            "93266808": {
+                "name": "I'm sti \u270c\ufe0f\uf8ff",
+                "positive": 1,
+                "negative": 0
+            }
+        }
+    },
+    "5991907369": {
+        "name": "Dev",
+        "trades": 1,
+        "positive": 1,
+        "negative": 0,
+        "p2p_trades": 0,
+        "bs_trades": 1,
+        "link": "tg://user?id=5991907369",
+        "reviewers": {
+            "93266808": {
+                "name": "I'm sti \u270c\ufe0f\uf8ff",
+                "positive": 1,
+                "negative": 0
+            }
+        }
+    }
+}

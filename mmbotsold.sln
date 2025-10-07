@@ -1,0 +1,42 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.2.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "mexc-api-demo", "mexc-api-demo", "{43FA8B2F-4BD9-85EA-53D5-3EEF9FD44DC7}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "dotnet", "dotnet", "{C959A395-0E27-EED7-361A-4BEF14CF3476}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "mexc_websocket_dotnet", "mexc-api-demo\dotnet\websocket\mexc_websocket_dotnet.csproj", "{01A21653-62E5-D7B4-F80E-E7A9E32966B9}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "spot", "spot", "{0FF6A4A3-ACCE-56AF-81F2-91F0D6335B67}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MexcDotNet", "mexc-api-demo\dotnet\spot\v3\MexcDotNet.csproj", "{9F9DAC3B-8AF0-6878-CDD4-6A33C1D180B7}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{01A21653-62E5-D7B4-F80E-E7A9E32966B9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{01A21653-62E5-D7B4-F80E-E7A9E32966B9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{01A21653-62E5-D7B4-F80E-E7A9E32966B9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{01A21653-62E5-D7B4-F80E-E7A9E32966B9}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9F9DAC3B-8AF0-6878-CDD4-6A33C1D180B7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9F9DAC3B-8AF0-6878-CDD4-6A33C1D180B7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9F9DAC3B-8AF0-6878-CDD4-6A33C1D180B7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9F9DAC3B-8AF0-6878-CDD4-6A33C1D180B7}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{C959A395-0E27-EED7-361A-4BEF14CF3476} = {43FA8B2F-4BD9-85EA-53D5-3EEF9FD44DC7}
+		{01A21653-62E5-D7B4-F80E-E7A9E32966B9} = {C959A395-0E27-EED7-361A-4BEF14CF3476}
+		{0FF6A4A3-ACCE-56AF-81F2-91F0D6335B67} = {C959A395-0E27-EED7-361A-4BEF14CF3476}
+		{9F9DAC3B-8AF0-6878-CDD4-6A33C1D180B7} = {0FF6A4A3-ACCE-56AF-81F2-91F0D6335B67}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {9E1F5B95-5E0F-4EF9-80FD-85F7FF8A880C}
+	EndGlobalSection
+EndGlobal

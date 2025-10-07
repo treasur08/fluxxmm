@@ -1,0 +1,7 @@
+{
+  "start_message": "\nWe help people buy and sell things safely🤝\n\n📝 Quick Deal Setup:\nSubmit a deal form directly in any group using the P2P or Product format below!",
+  "form_message": "<b>Deal Setup Form</b>\n\nSubmit one of the following forms to start a deal:\n\n<b>P2P Form:</b>\n<pre>Buyer: @username\nSeller: @username\nAmount [USDT]: $amount\nTime: duration (e.g., 2 hours)</pre>\n\n<b>Product Form:</b>\n<pre>Buyer: @username\nSeller: @username\nAmount [USDT]: $amount\nDeal details: Description of item/service\nTime: duration (e.g., 2 hours)</pre>\n\n<b>Examples:</b>\n<b>P2P:</b>\n<code>Buyer: @buyer\nSeller: @seller\nAmount [USDT]: $200\nTime: 2 hours</code>\n<b>Product:</b>\n<code>Buyer: @buyer\nSeller: @seller\nAmount [USDT]: $2000\nDeal details: Selling PS4\nTime: 2 hours</code>",
+  "escrow_bot_name": "FLUXX Midleman Bot",
+  "brand_name": "FLUXX",
+  "tos_prompt_message": "TERMS & CONDITIONS OF DEAL\n\nPlease reply to this message and provide all relevant rules and obligations regarding this transaction.\n\n• Clearly outline expectations for both parties.\n• State any specific rules, payment terms, return/refund policies, or time limits.\n• Example:\n  All payments must be made in advance. No refunds unless agreed by both parties. Both buyer and seller are expected to adhere to group guidelines.\n\nEnsure that everything important to this deal is included for full clarity and transparency."
+}

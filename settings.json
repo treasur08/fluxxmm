@@ -1,0 +1,12 @@
+{
+    "max_deal": 10000,
+    "free_limit": 1,
+    "log_channel": -1002665151657,
+    "refer_percent": 10.0,
+    "allowed_groups": [
+        -1003197888126,
+        -1003197888926,
+        -1002665151657
+    ],
+    "admin_balance": 0.02
+}

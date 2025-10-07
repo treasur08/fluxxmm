@@ -1,0 +1,25 @@
+{
+    "ORDER-A4FD166C526F": {
+        "buyer": 93266808,
+        "seller": 5991907369,
+        "buyer_name": "I'm sti \u270c\ufe0f\uf8ff",
+        "seller_name": "Dev",
+        "starter": 93266808,
+        "amount": 5.0,
+        "deal_type": "b_and_s",
+        "timer_hours": 1,
+        "group_id": -1003197888926,
+        "status": "initiated",
+        "deal_details": "testing product ",
+        "created_at": "2025-10-07T10:46:46.278226",
+        "buyer_confirmed": false,
+        "seller_confirmed": false,
+        "fee_payer": null,
+        "pay_currency": null,
+        "network": null,
+        "track_id": null,
+        "payment_status": null,
+        "discount_percentage": 20.0,
+        "form_message_id": 1039
+    }
+}
